@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Noxi Outlier Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: solid colour masthead with chunky white lettering, setup rail beside a results column that reads summary first, then every video. */
+:root {
+  --bg: #f2f4fb;
+  --surface: #ffffff;
+  --ink: #141a33;
+  --muted: #566080;
+  --line: #d7dcec;
+  --band: #2138d6;
+  --on-band: #ffffff;
+  --accent: #2138d6;
+  --on-accent: #ffffff;
+  --hit: #ffd93b;
+  --on-hit: #141a33;
+  --warn-bg: #fff3d1;
+  --warn-ink: #6b4a00;
+  --bad-bg: #fde4e1;
+  --bad-ink: #8c1d12;
+  --display: "Bowlby One", Impact, "Arial Black", sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1226; --surface: #181d38; --ink: #eef0fa; --muted: #a3abc9; --line: #2d3456;
+    --band: #2138d6; --on-band: #ffffff; --accent: #8c9bff; --on-accent: #0e1226;
+    --hit: #ffd93b; --on-hit: #141a33; --warn-bg: #3a2f10; --warn-ink: #ffdf85; --bad-bg: #40181a; --bad-ink: #ffb4ab;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1226; --surface: #181d38; --ink: #eef0fa; --muted: #a3abc9; --line: #2d3456;
+  --band: #2138d6; --on-band: #ffffff; --accent: #8c9bff; --on-accent: #0e1226;
+  --hit: #ffd93b; --on-hit: #141a33; --warn-bg: #3a2f10; --warn-ink: #ffdf85; --bad-bg: #40181a; --bad-ink: #ffb4ab;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.5 var(--body); }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.band { background: var(--band); color: var(--on-band); }
+.band .wrap { padding-block: 28px; display: grid; gap: 6px; }
+h1 { margin: 0; font: 400 clamp(2rem, 6vw, 3.4rem)/1.02 var(--display); letter-spacing: .01em; text-shadow: 0 3px 0 rgba(10, 18, 90, .55); text-wrap: balance; }
+.band p { margin: 0; max-width: 62ch; font-size: 1.02rem; }
+.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; padding-block: 24px 48px; }
+.rail { display: grid; gap: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.main { display: grid; gap: 24px; min-width: 0; }
+h2 { margin: 0; font-size: 1.15rem; font-weight: 700; text-wrap: balance; }
+.field { display: grid; gap: 5px; min-width: 0; }
+label { font-weight: 600; font-size: .88rem; }
+.hint { color: var(--muted); font-size: .84rem; margin: 0; }
+input, select, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+textarea { min-height: 150px; resize: vertical; font-size: .9rem; }
+button { font: inherit; font-weight: 700; border-radius: 6px; padding: 9px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+button:disabled { opacity: .6; cursor: wait; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); padding-block: 11px; }
+button.link { border: 0; background: none; padding: 0; font-weight: 500; font-size: .84rem; color: var(--muted); text-decoration: underline; justify-self: start; }
+details { border-top: 1px solid var(--line); padding-top: 12px; }
+summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+details ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: .87rem; }
+.notice { border-radius: 8px; padding: 10px 14px; background: var(--warn-bg); color: var(--warn-ink); font-size: .92rem; }
+.notice.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.notice ul { margin: 4px 0 0; padding-left: 18px; }
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+.filters .field { align-content: end; }
+.stats { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.stats p { margin: 0; font-weight: 500; }
+.insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.insight { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums; }
+th { text-align: right; font-size: .76rem; font-weight: 600; color: var(--muted); letter-spacing: .02em; padding: 4px 0 4px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { text-align: right; padding: 7px 0 7px 12px; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+.list { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.video { display: grid; grid-template-columns: 76px 128px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding-block: 12px; border-bottom: 1px solid var(--line); }
+.mult { font: 400 1.35rem/1 var(--display); background: var(--hit); color: var(--on-hit); border-radius: 6px; padding: 8px 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.thumb { width: 128px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--line); display: block; }
+.vtitle { font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.vmeta { margin: 2px 0 0; color: var(--muted); font-size: .86rem; overflow-wrap: anywhere; }
+.nums { display: grid; gap: 2px; text-align: right; font-size: .86rem; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.nums strong { color: var(--ink); font-size: 1rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.chip { font-size: .74rem; font-weight: 600; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+.empty { padding: 20px 0; color: var(--muted); margin: 0; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .insights { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .video { grid-template-columns: 66px minmax(0, 1fr); }
+  .thumb { display: none; }
+  .nums { grid-column: 2; text-align: left; display: flex; flex-wrap: wrap; gap: 2px 12px; white-space: normal; align-items: baseline; }
+  .mult { font-size: 1.1rem; align-self: start; }
+}
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="wrap">
+    <h1>Noxi Outlier Finder</h1>
+    <p>Find the videos that beat their own channel's normal views, and the topics those videos have in common.</p>
+  </div>
+</header>
+
+<div class="wrap layout">
+  <form class="rail" id="setup" novalidate>
+    <h2>Scan channels</h2>
+    <div class="field">
+      <label for="key">YouTube API key</label>
+      <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+      <p class="hint">Saved only in this browser and sent only to YouTube.</p>
+      <button type="button" class="link" id="forget">Forget my key</button>
+    </div>
+    <div class="field">
+      <label for="channels">Channels, one per line</label>
+      <textarea id="channels" spellcheck="false">@zackdfilms
+@kurzgesagt
+@AsapSCIENCE
+@TheInfographicsShow
+@TEDEd</textarea>
+      <p class="hint">Use an @handle, a channel link or a UC channel ID. Add smaller channels too: their wins depend less on audience size.</p>
+    </div>
+    <div class="field">
+      <label for="depth">Latest videos per channel</label>
+      <select id="depth">
+        <option value="50">50</option>
+        <option value="100" selected>100</option>
+        <option value="200">200</option>
+        <option value="500">500</option>
+      </select>
+    </div>
+    <button class="primary" id="scan" type="submit">Scan channels</button>
+    <p class="hint" id="progress" role="status"></p>
+    <details>
+      <summary>Get a free API key</summary>
+      <ol>
+        <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project.</li>
+        <li>Open the <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">YouTube Data API v3 page</a> and click Enable.</li>
+        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credentials</a>, click Create credentials, then API key.</li>
+        <li>Edit the key. Under API restrictions, choose YouTube Data API v3. Under Application restrictions, choose Websites and add <code>https://xplanxplanet.github.io/*</code>.</li>
+        <li>Paste the key above. You don't need to add a card for the free quota.</li>
+      </ol>
+    </details>
+  </form>
+
+  <main class="main">
+    <div class="notice" id="sampleNote"><strong>Example data.</strong> These channels and videos are made up to show how results look. Add your API key and scan to see real ones.</div>
+    <div class="notice bad" id="errors" role="alert" hidden></div>
+
+    <section class="filters" aria-label="Filters">
+      <div class="field"><label for="format">Format</label>
+        <select id="format"><option value="short" selected>Up to 3 min</option><option value="long">Longer videos</option><option value="all">Both</option></select></div>
+      <div class="field"><label for="minMult">Beats normal by</label>
+        <select id="minMult"><option value="2">2× or more</option><option value="3" selected>3× or more</option><option value="5">5× or more</option><option value="10">10× or more</option></select></div>
+      <div class="field"><label for="windowDays">Published in the last</label>
+        <select id="windowDays"><option value="30">30 days</option><option value="90">90 days</option><option value="180" selected>6 months</option><option value="365">1 year</option><option value="100000">Any time</option></select></div>
+      <div class="field"><label for="minViews">Minimum views</label>
+        <select id="minViews"><option value="0">Any</option><option value="10000" selected>10,000</option><option value="100000">100,000</option><option value="1000000">1 million</option></select></div>
+      <div class="field"><label for="maxSubs">Channel size</label>
+        <select id="maxSubs"><option value="Infinity" selected>Any size</option><option value="1000000">Under 1M subscribers</option><option value="100000">Under 100K subscribers</option></select></div>
+      <div class="field"><label for="sort">Sort by</label>
+        <select id="sort"><option value="multiple" selected>Biggest multiple</option><option value="perDay">Views per day</option><option value="views">Total views</option><option value="newest">Newest</option></select></div>
+    </section>
+
+    <div class="stats">
+      <p id="summary"></p>
+      <button type="button" id="csv">Export CSV</button>
+    </div>
+
+    <section class="insights">
+      <div class="insight">
+        <h2>Topics that keep overperforming</h2>
+        <p class="hint">Words found in at least 2 outliers. Topics that win on several channels are stronger signals.</p>
+        <div class="scroll" id="topics"></div>
+      </div>
+      <div class="insight">
+        <h2>Title styles that overperform</h2>
+        <p class="hint">"Lift" compares how common a style is among outliers with how common it is overall.</p>
+        <div class="scroll" id="patterns"></div>
+      </div>
+    </section>
+
+    <section class="insight">
+      <h2>Outlier videos</h2>
+      <div class="list" id="videos"></div>
+      <p class="hint">Normal means the channel's median views for that format, using videos at least 14 days old. A result shows what worked for that channel, not what will work for you.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+'use strict';
+/* ---------- Pure logic ---------- */
+const DAY = 86400000;
+const MATURE_DAYS = 14;
+const MIN_BASELINE = 5;
+const SHORT_MAX_SECONDS = 180;
+
+function parseChannelInput(raw) {
+  const s = raw.trim();
+  if (!s) return null;
+  let m;
+  if ((m = s.match(/youtube\.com\/channel\/(UC[\w-]+)/i))) return { type: 'id', value: m[1], label: s };
+  if ((m = s.match(/youtube\.com\/@([^/?#\s]+)/i))) return { type: 'handle', value: '@' + decodeURIComponent(m[1]), label: s };
+  if (/youtube\.com\//i.test(s)) return { type: 'bad', value: s, label: s };
+  if (/^UC[\w-]{20,}$/.test(s)) return { type: 'id', value: s, label: s };
+  if (/^@?[^\s/]+$/.test(s)) return { type: 'handle', value: s.startsWith('@') ? s : '@' + s, label: s };
+  return { type: 'bad', value: s, label: s };
+}
+
+function parseDuration(iso) {
+  const m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso || '');
+  if (!m) return null;
+  return (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0);
+}
+
+function median(nums) {
+  if (!nums.length) return 0;
+  const a = [...nums].sort((x, y) => x - y), i = a.length >> 1;
+  return a.length % 2 ? a[i] : (a[i - 1] + a[i]) / 2;
+}
+
+function videoFormat(v) { return v.seconds <= SHORT_MAX_SECONDS ? 'short' : 'long'; }
+
+/* Every video that has a fair baseline, scored against its own channel and format. */
+function scoreVideos(channels, now) {
+  const rows = [];
+  let noBaseline = 0;
+  for (const ch of channels) {
+    for (const fmt of ['short', 'long']) {
+      const vids = ch.videos.filter(v => videoFormat(v) === fmt);
+      const age = v => (now - Date.parse(v.publishedAt)) / DAY;
+      const mature = vids.filter(v => age(v) >= MATURE_DAYS);
+      const base = median(mature.map(v => v.views));
+      if (mature.length < MIN_BASELINE || base <= 0) { noBaseline += vids.length; continue; }
+      for (const v of vids) {
+        const ageDays = Math.max(age(v), 0);
+        rows.push({ ...v, format: fmt, channelId: ch.id, channel: ch.title, subs: ch.subs, normal: base,
+          multiple: v.views / base, ageDays, perDay: v.views / Math.max(ageDays, 1) });
+      }
+    }
+  }
+  return { rows, noBaseline };
+}
+
+function selectRows(rows, f) {
+  const pool = rows.filter(r =>
+    (f.format === 'all' || r.format === f.format) &&
+    r.ageDays <= f.windowDays &&
+    (f.maxSubs === Infinity || (r.subs !== null && r.subs < f.maxSubs)));
+  const outliers = pool.filter(r => r.multiple >= f.minMult && r.views >= f.minViews);
+  const sorters = {
+    multiple: (a, b) => b.multiple - a.multiple,
+    perDay: (a, b) => b.perDay - a.perDay,
+    views: (a, b) => b.views - a.views,
+    newest: (a, b) => a.ageDays - b.ageDays,
+  };
+  outliers.sort(sorters[f.sort] || sorters.multiple);
+  return { pool, outliers };
+}
+
+const PATTERNS = [
+  ['"What happens if / when"', /\bwhat (happens|would happen)\b/i],
+  ['"What if"', /\bwhat if\b/i],
+  ['Starts with "Why"', /^why\b/i],
+  ['Starts with "How"', /^how\b/i],
+  ['Starts with "This / These"', /^(this|these)\b/i],
+  ['Asks a question', /\?/],
+  ['Includes a number', /\b\d[\d,.]*\b/],
+  ['Speaks to "you"', /\b(you|your|you're|you'll)\b/i],
+  ['Warning: never, stop, worst', /\b(never|don't|dont|stop|avoid|worst|dangerous|deadly)\b/i],
+  ['Reveal: actually, real, secret', /\b(actually|really|real|truth|secret|hidden)\b/i],
+];
+function cleanTitle(t) { return t.replace(/[‘’]/g, "'").replace(/#[\p{L}\p{N}_]+/gu, ' '); }
+
+function patternStats(pool, outliers) {
+  if (!outliers.length) return [];
+  return PATTERNS.map(([name, re]) => {
+    const hit = r => re.test(cleanTitle(r.title));
+    const inOut = outliers.filter(hit).length, inPool = pool.filter(hit).length;
+    const outShare = inOut / outliers.length, poolShare = inPool / pool.length;
+    return { name, count: inOut, outShare, poolShare, lift: poolShare ? outShare / poolShare : 0 };
+  }).filter(p => p.count >= 2).sort((a, b) => b.lift - a.lift || b.count - a.count);
+}
+
+const STOP = new Set(("the a an and or but of to in on at for from by with without about into over under after before between out up down off " +
+  "is are was were be been being am do does did done has have had having will would can could should may might must shall " +
+  "this that these those it its it's i you your you're you'll we our us they their them he she his her him my me who whom whose what when where why how which " +
+  "not no yes if then than so too very just only also more most much many some any all each every few own same other such as " +
+  "there here get gets got make makes made one two three new now ever never really actually happens happen happened would thing things video videos shorts short part").split(' '));
+
+function words(title) {
+  return cleanTitle(title).toLowerCase().match(/[\p{L}\p{N}']+/gu) || [];
+}
+function stem(w) { return w.length > 4 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w; }
+function terms(title) {
+  const out = new Map();
+  const toks = words(title).map(w => w.replace(/^'+|'+$/g, '').replace(/'s$/, ''));
+  const keep = w => w.length >= 3 && !STOP.has(w) && !/^\d+$/.test(w);
+  toks.forEach((w, i) => {
+    if (!keep(w)) return;
+    out.set(stem(w), w);
+    const nx = toks[i + 1];
+    if (nx && keep(nx)) out.set(stem(w) + ' ' + stem(nx), w + ' ' + nx);
+  });
+  return out;
+}
+function topicStats(pool, outliers, limit = 10) {
+  if (!outliers.length) return [];
+  const tally = new Map();
+  const add = (rows, field) => rows.forEach(r => {
+    terms(r.title).forEach((label, key) => {
+      const t = tally.get(key) || { key, label, out: 0, all: 0, channels: new Set() };
+      t[field]++;
+      if (field === 'out') t.channels.add(r.channelId);
+      tally.set(key, t);
+    });
+  });
+  add(outliers, 'out');
+  add(pool, 'all');
+  let list = [...tally.values()].filter(t => t.out >= 2).map(t => ({
+    label: t.label, key: t.key, count: t.out, channels: t.channels.size,
+    lift: (t.out / outliers.length) / (t.all / pool.length),
+  })).filter(t => t.lift >= 1.5);
+  const phrases = list.filter(t => t.key.includes(' '));
+  list = list.filter(t => t.key.includes(' ') || !phrases.some(p => p.count === t.count && p.key.split(' ').includes(t.key)));
+  return list.sort((a, b) => b.channels - a.channels || b.count - a.count || b.lift - a.lift).slice(0, limit);
+}
+
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function toCsv(rows) {
+  const head = ['Title', 'Channel', 'Subscribers', 'Format', 'Views', 'Channel normal', 'Multiple', 'Views per day', 'Published', 'URL'];
+  const body = rows.map(r => [r.title, r.channel, r.subs ?? 'Hidden', r.format, r.views, Math.round(r.normal), r.multiple.toFixed(1),
+    Math.round(r.perDay), r.publishedAt.slice(0, 10), r.id.startsWith('example') ? '' : 'https://www.youtube.com/watch?v=' + r.id]);
+  return [head, ...body].map(l => l.map(csvCell).join(',')).join('\r\n');
+}
+
+/* ---------- YouTube ---------- */
+const API = 'https://www.googleapis.com/youtube/v3/';
+class ApiError extends Error {
+  constructor(message, fatal) { super(message); this.fatal = fatal; }
+}
+function explainError(status, reason, message) {
+  const r = reason || '';
+  if (/quotaExceeded|dailyLimitExceeded/i.test(r)) return new ApiError('You have used today\'s free YouTube quota. It resets at midnight Pacific Time. Results fetched so far are shown.', true);
+  if (/accessNotConfigured|SERVICE_DISABLED/i.test(r)) return new ApiError('YouTube Data API v3 isn\'t enabled for this key. Enable it in Google Cloud Console, wait a minute and scan again.', true);
+  if (/ipRefererBlocked|API_KEY_HTTP_REFERRER_BLOCKED|API_KEY_SERVICE_BLOCKED/i.test(r) || /referer/i.test(message || '')) return new ApiError('This key has a restriction that blocks this site. In Google Cloud Console, add https://xplanxplanet.github.io/* under Websites and allow YouTube Data API v3.', true);
+  if (/keyInvalid|API_KEY_INVALID/i.test(r) || /API key/i.test(message || '')) return new ApiError('YouTube rejected this API key. Copy the full key from Google Cloud Console and paste it again.', true);
+  if (status === 404 || /playlistNotFound/i.test(r)) return new ApiError('this channel has no public uploads list', false);
+  return new ApiError(message || ('YouTube returned error ' + status), false);
+}
+function makeClient(key, fetcher) {
+  const client = { units: 0 };
+  client.call = async (path, params) => {
+    const qs = new URLSearchParams({ ...params, key });
+    let res;
+    try { res = await fetcher(API + path + '?' + qs); }
+    catch (e) { throw new ApiError('Couldn\'t reach YouTube. Check your internet connection and scan again.', true); }
+    client.units++;
+    let body = {};
+    try { body = await res.json(); } catch (e) { /* handled by status below */ }
+    if (!res.ok) {
+      const err = body.error || {};
+      const reason = (err.errors && err.errors[0] && err.errors[0].reason) || (err.details && err.details[0] && err.details[0].reason) || err.status;
+      const extra = err.details && err.details[0] && err.details[0].reason;
+      throw explainError(res.status, [reason, extra].filter(Boolean).join(' '), err.message);
+    }
+    return body;
+  };
+  return client;
+}
+async function fetchChannel(client, input, depth) {
+  if (input.type === 'bad') throw new ApiError('use an @handle, a youtube.com/@name link or a UC channel ID', false);
+  const params = { part: 'snippet,statistics,contentDetails' };
+  params[input.type === 'id' ? 'id' : 'forHandle'] = input.value;
+  const found = await client.call('channels', params);
+  const c = found.items && found.items[0];
+  if (!c) throw new ApiError('no channel found. Check the spelling of the handle', false);
+  const ids = [];
+  let pageToken;
+  do {
+    const page = await client.call('playlistItems', {
+      part: 'contentDetails', maxResults: 50, playlistId: c.contentDetails.relatedPlaylists.uploads,
+      ...(pageToken ? { pageToken } : {}),
+    });
+    (page.items || []).forEach(i => ids.push(i.contentDetails.videoId));
+    pageToken = page.nextPageToken;
+  } while (pageToken && ids.length < depth);
+  const wanted = ids.slice(0, depth), videos = [];
+  for (let i = 0; i < wanted.length; i += 50) {
+    const page = await client.call('videos', { part: 'snippet,statistics,contentDetails', id: wanted.slice(i, i + 50).join(','), maxResults: 50 });
+    for (const v of page.items || []) {
+      const seconds = parseDuration(v.contentDetails && v.contentDetails.duration);
+      if (v.snippet.liveBroadcastContent !== 'none' || !v.statistics || v.statistics.viewCount === undefined || !seconds) continue;
+      const th = v.snippet.thumbnails || {};
+      videos.push({ id: v.id, title: v.snippet.title, publishedAt: v.snippet.publishedAt, views: +v.statistics.viewCount, seconds,
+        thumb: (th.medium || th.default || {}).url || '' });
+    }
+  }
+  return {
+    id: c.id, title: c.snippet.title,
+    subs: c.statistics.hiddenSubscriberCount ? null : +c.statistics.subscriberCount,
+    videos,
+  };
+}
+async function scanChannels(lines, depth, key, fetcher, onProgress) {
+  const seen = new Set(), inputs = [];
+  for (const line of lines) {
+    const input = parseChannelInput(line);
+    if (input && !seen.has(input.value.toLowerCase())) { seen.add(input.value.toLowerCase()); inputs.push(input); }
+  }
+  const client = makeClient(key, fetcher);
+  const channels = [], problems = [];
+  let fatal = null, next = 0, done = 0;
+  const worker = async () => {
+    while (next < inputs.length && !fatal) {
+      const input = inputs[next++];
+      try { channels.push(await fetchChannel(client, input, depth)); }
+      catch (e) {
+        if (e.fatal) fatal = fatal || e.message;
+        else problems.push(input.label + ': ' + e.message);
+      }
+      onProgress && onProgress(++done, inputs.length);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  const unique = [...new Map(channels.map(c => [c.id, c])).values()];
+  return { channels: unique, problems, fatal, units: client.units, requested: inputs.length };
+}
+
+/* ---------- Example data (fictional) ---------- */
+function exampleChannels(now) {
+  const seedTitles = ['What Happens If You Swallow Gum?', 'How Elevators Actually Stop', 'Why Your Ears Pop on Planes', 'The Tiny Bug in Your Pillow',
+    'How Traffic Lights Know You Are There', 'Why Onions Make You Cry', 'How Zippers Were Invented', 'Inside a Vending Machine', 'Why Ice Floats',
+    'How Bread Rises', 'Why Cats Purr', 'How Batteries Die', 'Inside a Pencil Factory', 'Why Mirrors Flip Left and Right', 'How Soap Works'];
+  const hits = {
+    A: ['What Happens If You Fall Into Quicksand?', 'What Happens If You Stop Sleeping?', 'Why You Should Never Hold in a Sneeze', 'What Happens Inside a Black Hole?'],
+    B: ['What Happens If You Fall Into a Volcano?', 'Never Hold in a Sneeze: Here Is Why', 'What Happens If You Stop Blinking?'],
+    C: ['Why Quicksand Is Not What You Think', 'What Happens If You Stop Eating Sugar?', 'Inside a Black Hole in 60 Seconds'],
+  };
+  const spec = [['example-a', 'Example Channel A', 840000, 95000, 'A'], ['example-b', 'Example Channel B', 62000, 14000, 'B'], ['example-c', 'Example Channel C', 18000, 6000, 'C']];
+  return spec.map(([id, title, subs, base, k]) => {
+    const videos = [];
+    for (let i = 0; i < 40; i++) {
+      const wobble = 0.6 + ((i * 37) % 17) / 17;
+      videos.push({ id: id + '-' + i, title: seedTitles[i % seedTitles.length], publishedAt: new Date(now - (i * 4 + 16) * DAY).toISOString(), views: Math.round(base * wobble), seconds: 50, thumb: '' });
+    }
+    hits[k].forEach((t, i) => videos.push({ id: id + '-hit-' + i, title: t, publishedAt: new Date(now - (i * 19 + 8) * DAY).toISOString(), views: Math.round(base * (14 - i * 3)), seconds: 55, thumb: '' }));
+    return { id, title, subs, videos };
+  });
+}
+
+/* ---------- Page ---------- */
+const $ = id => document.getElementById(id);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) { /* storage unavailable */ } },
+};
+const num = n => n === null || n === undefined ? 'Hidden' : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+const pct = n => Math.round(n * 100) + '%';
+const mult = n => (n >= 100 ? Math.round(n) : n.toFixed(1)) + '×';
+const ago = d => d < 1 ? 'today' : d < 2 ? '1 day ago' : d < 60 ? Math.floor(d) + ' days ago' : d < 730 ? Math.floor(d / 30) + ' months ago' : Math.floor(d / 365) + ' years ago';
+function el(tag, props, ...kids) {
+  const n = document.createElement(tag);
+  Object.entries(props || {}).forEach(([k, v]) => { if (k === 'class') n.className = v; else n[k] = v; });
+  kids.flat().forEach(c => n.append(c));
+  return n;
+}
+let state = { channels: [], sample: true, scanned: null, current: [] };
+
+function filters() {
+  return {
+    format: $('format').value, minMult: +$('minMult').value, windowDays: +$('windowDays').value,
+    minViews: +$('minViews').value, maxSubs: Number($('maxSubs').value), sort: $('sort').value,
+  };
+}
+function table(heads, rows) {
+  return el('table', {}, el('thead', {}, el('tr', {}, heads.map(h => el('th', { scope: 'col' }, h)))),
+    el('tbody', {}, rows.map(cells => el('tr', {}, cells.map(c => el('td', {}, c))))));
+}
+function videoRow(r) {
+  const real = !r.id.startsWith('example');
+  const title = real ? el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(r.id), target: '_blank', rel: 'noopener' }, r.title) : r.title;
+  const img = real && r.thumb && /^https:\/\/i\d?\.ytimg\.com\//.test(r.thumb)
+    ? el('img', { className: 'thumb', src: r.thumb, alt: '', loading: 'lazy' }) : el('div', { class: 'thumb' });
+  const chips = [];
+  if (r.ageDays < MATURE_DAYS) chips.push(el('span', { class: 'chip' }, 'Still climbing'));
+  if (r.subs !== null && r.subs < 100000) chips.push(el('span', { class: 'chip' }, 'Small channel'));
+  return el('article', { class: 'video' },
+    el('div', { class: 'mult', title: 'Views compared with this channel\'s normal' }, mult(r.multiple)),
+    img,
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, title),
+      el('p', { class: 'vmeta' }, r.channel + ' · ' + num(r.subs) + ' subs · ' + ago(r.ageDays)),
+      chips.length ? el('div', { class: 'chips' }, chips) : ''),
+    el('div', { class: 'nums' }, el('strong', {}, num(r.views) + ' views'), el('span', {}, 'Normal ' + num(r.normal)), el('span', {}, num(r.perDay) + '/day')));
+}
+function render() {
+  const { rows, noBaseline } = scoreVideos(state.channels, Date.now());
+  const f = filters();
+  const { pool, outliers } = selectRows(rows, f);
+  state.current = outliers;
+  $('sampleNote').hidden = !state.sample;
+  const skipped = noBaseline ? ' ' + noBaseline.toLocaleString('en') + ' videos skipped because their channel has fewer than ' + MIN_BASELINE + ' older videos in that format.' : '';
+  $('summary').textContent = outliers.length.toLocaleString('en') + ' outliers from ' + pool.length.toLocaleString('en') + ' videos across ' + state.channels.length + (state.channels.length === 1 ? ' channel.' : ' channels.') + skipped;
+  $('csv').disabled = !outliers.length;
+
+  const t = topicStats(pool, outliers);
+  $('topics').replaceChildren(t.length
+    ? table(['Topic', 'Outliers', 'Channels', 'Lift'], t.map(x => [x.label, String(x.count), String(x.channels), mult(x.lift)]))
+    : el('p', { class: 'empty' }, 'No repeating topics yet. Scan more channels or lower the filters.'));
+  const p = patternStats(pool, outliers);
+  $('patterns').replaceChildren(p.length
+    ? table(['Style', 'Of outliers', 'Of all', 'Lift'], p.map(x => [x.name, pct(x.outShare), pct(x.poolShare), mult(x.lift)]))
+    : el('p', { class: 'empty' }, 'No repeating title styles yet. Scan more channels or lower the filters.'));
+  $('videos').replaceChildren(...(outliers.length
+    ? outliers.slice(0, 100).map(videoRow)
+    : [el('p', { class: 'empty' }, 'No videos match these filters. Try a lower multiple, a longer time period or the other format.')]));
+}
+function showErrors(fatal, problems) {
+  const box = $('errors');
+  if (!fatal && !problems.length) { box.hidden = true; box.replaceChildren(); return; }
+  box.hidden = false;
+  box.replaceChildren(...[
+    fatal ? el('div', {}, fatal) : null,
+    problems.length ? el('div', {}, 'Some channels were skipped:', el('ul', {}, problems.map(p => el('li', {}, p)))) : null,
+  ].filter(Boolean));
+}
+async function onScan(ev) {
+  ev.preventDefault();
+  const key = $('key').value.trim();
+  const lines = $('channels').value.split('\n').filter(l => l.trim());
+  if (!key) { showErrors('Paste your YouTube API key first. The steps are under "Get a free API key".', []); $('key').focus(); return; }
+  if (!lines.length) { showErrors('Add at least one channel to scan.', []); $('channels').focus(); return; }
+  store.set('nox.key', key);
+  store.set('nox.channels', $('channels').value);
+  showErrors(null, []);
+  $('scan').disabled = true;
+  $('progress').textContent = 'Scanning channels…';
+  const result = await scanChannels(lines, +$('depth').value, key, (...a) => fetch(...a), (d, n) => { $('progress').textContent = 'Scanned ' + d + ' of ' + n + ' channels…'; });
+  $('scan').disabled = false;
+  $('progress').textContent = 'Used ' + result.units.toLocaleString('en') + ' of your 10,000 free daily quota units.';
+  showErrors(result.fatal, result.problems);
+  if (result.channels.length) {
+    state.channels = result.channels;
+    state.sample = false;
+    store.set('nox.scan', JSON.stringify(result.channels));
+    render();
+  }
+}
+function boot() {
+  const saved = store.get('nox.scan');
+  let restored = null;
+  try { restored = saved && JSON.parse(saved); } catch (e) { restored = null; }
+  if (Array.isArray(restored) && restored.length) { state.channels = restored; state.sample = false; }
+  else { state.channels = exampleChannels(Date.now()); state.sample = true; }
+  $('key').value = store.get('nox.key') || '';
+  const savedChannels = store.get('nox.channels');
+  if (savedChannels) $('channels').value = savedChannels;
+  $('setup').addEventListener('submit', onScan);
+  $('forget').addEventListener('click', () => { store.del('nox.key'); $('key').value = ''; $('progress').textContent = 'Key removed from this browser.'; });
+  ['format', 'minMult', 'windowDays', 'minViews', 'maxSubs', 'sort'].forEach(id => $(id).addEventListener('change', render));
+  $('csv').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob(['﻿' + toCsv(state.current)], { type: 'text/csv;charset=utf-8' }));
+    const a = el('a', { href: url, download: 'noxi-outliers.csv' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  render();
+}
+boot();
+</script>
+</body>
+</html>
