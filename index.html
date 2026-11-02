@@ -108,6 +108,10 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
 .spark circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
 button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 .addall { justify-self: start; }
+.nichedetail { display: grid; gap: 4px; min-width: 0; }
+.nichedetail details { min-width: 0; }
+.nichetable td:not(:first-child), .nichedetail td:not(:first-child) { white-space: nowrap; }
+.nichetable td:first-child { min-width: 9em; }
 @media (max-width: 900px) { .newview { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 620px) { button.add { justify-self: start; } }
 @media (max-width: 900px) {
@@ -126,7 +130,7 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 <header class="band">
   <div class="wrap">
     <h1>Noxi Outlier Finder</h1>
-    <p>Track new channels that are taking off, and find the videos and topics behind their growth.</p>
+    <p>Compare niches, track new channels that are taking off, and find the videos and topics behind their growth.</p>
   </div>
 </header>
 
@@ -149,6 +153,7 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
   </details>
   <div class="tabs" role="tablist">
     <button type="button" role="tab" id="tabDb" aria-controls="viewDb">Database</button>
+    <button type="button" role="tab" id="tabNiche" aria-controls="viewNiche">Niche finder</button>
     <button type="button" role="tab" id="tabNew" aria-controls="viewNew">New channels</button>
     <button type="button" role="tab" id="tabOut" aria-controls="viewOut">Outlier videos</button>
   </div>
@@ -181,6 +186,45 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     <div class="list" id="dbList"></div>
     <p class="hint">Views per day uses the last 7 days once there are two daily snapshots. Until then it's the average since the channel was created. Tap a channel to check its style, because some reuse other people's clips.</p>
   </section>
+</div>
+
+<div class="wrap newview" id="viewNiche" role="tabpanel">
+  <form class="rail" id="nicheForm" novalidate>
+    <h2>Compare niches</h2>
+    <div class="field">
+      <label for="nicheList">Niches, one per line</label>
+      <textarea id="nicheList" spellcheck="false">2d animation shorts
+animated history facts
+animated horror stories
+animated finance explainer
+stick figure animation</textarea>
+      <p class="hint">Write each niche the way people search for it. Each one uses 1 of your 100 daily searches. To use your own RPM, add it after a bar, like <code>animated finance | 8</code>.</p>
+    </div>
+    <div class="field">
+      <label for="nicheFormat">Format</label>
+      <select id="nicheFormat"><option value="short" selected>Shorts</option><option value="long">Long videos (4–20 min)</option></select>
+    </div>
+    <div class="field">
+      <label for="nicheDays">Videos published in the last</label>
+      <select id="nicheDays"><option value="30">30 days</option><option value="90" selected>90 days</option><option value="180">6 months</option><option value="365">1 year</option></select>
+    </div>
+    <button class="primary" id="nicheGo" type="submit">Compare niches</button>
+    <p class="hint" id="nicheProgress" role="status"></p>
+  </form>
+  <main class="main">
+    <div class="notice bad" id="nicheErrors" role="alert" hidden></div>
+    <div class="stats"><p id="nicheSummary"></p></div>
+    <section class="insight">
+      <h2>Niche scores</h2>
+      <p class="hint">Score out of 100. It weighs how many views the top videos get (35%), how often small channels reach the top (25%), how often new channels do (25%) and estimated RPM (15%).</p>
+      <div class="scroll nichetable" id="nicheTable"></div>
+    </section>
+    <section class="insight">
+      <h2>Who's winning in each niche</h2>
+      <div class="nichedetail" id="nicheDetail"></div>
+      <p class="hint">RPM is a rough guess, in US dollars, of what YouTube pays creators per 1,000 views for this kind of content. Real RPM depends on viewers' countries, video length and the time of year. Each niche is judged on YouTube's 50 most-viewed matching videos from the period, so this shows the top of a niche, not all of it.</p>
+    </section>
+  </main>
 </div>
 
 <div class="wrap newview" id="viewNew" role="tabpanel">
@@ -644,6 +688,110 @@ function sparkPoints(h, w = 96, height = 28, pad = 3) {
   ]);
 }
 
+/* ---------- Niche finder ---------- */
+/* Rough creator RPM in USD per 1,000 views: [long videos, Shorts]. First match wins. */
+const RPM_GUESS = [
+  [/financ|money|invest|stock|crypto|bitcoin|trading|budget|tax|credit|loan|insurance|real estate|mortgage|lawyer|legal/i, 12, 0.15],
+  [/business|entrepreneur|marketing|side hustle|make money|passive income|ecommerce|saas/i, 10, 0.12],
+  [/tech|software|\bai\b|artificial intelligence|coding|programming|computer|phone|gadget/i, 7, 0.1],
+  [/health|medical|doctor|fitness|workout|diet|nutrition|psycholog|mental/i, 5, 0.08],
+  [/history|science|space|geograph|education|explain|facts|documentary|learn|engineering/i, 4.5, 0.07],
+  [/self.?improvement|motivation|productiv|stoic|philosoph/i, 4, 0.06],
+  [/travel|food|cooking|recipe|car|truck|diy|home/i, 4, 0.06],
+  [/horror|scary|creepy|true crime|mystery|story|stories|storytime/i, 3, 0.05],
+  [/gaming|minecraft|roblox|fortnite|game/i, 2.5, 0.04],
+  [/kids|nursery|cartoon for kids|toddler/i, 1.5, 0.03],
+  [/funny|comedy|meme|prank|music|song|dance/i, 1.5, 0.03],
+];
+const RPM_DEFAULT = [3, 0.05];
+const SMALL_SUBS = 100000;
+const NEW_CHANNEL_DAYS = 365;
+
+function parseNicheLine(line) {
+  const m = /^(.*?)\s*\|\s*\$?\s*(\d+(?:\.\d+)?)\s*$/.exec(line);
+  const q = (m ? m[1] : line).trim();
+  return q ? { q, rpm: m ? +m[2] : null } : null;
+}
+function guessRpm(q, format) {
+  const hit = RPM_GUESS.find(([re]) => re.test(q)) || [null, ...RPM_DEFAULT];
+  return format === 'short' ? hit[2] : hit[1];
+}
+const clamp01 = x => Math.min(Math.max(x, 0), 1);
+
+function analyzeNiche(niche, videoById, channelById, format, now) {
+  const vids = niche.ids.map(id => videoById.get(id))
+    .filter(v => v && (format === 'short' ? v.seconds <= SHORT_MAX_SECONDS : v.seconds > SHORT_MAX_SECONDS))
+    .sort((a, b) => b.views - a.views);
+  const rpm = niche.rpm ?? guessRpm(niche.q, format);
+  const chOf = v => channelById.get(v.channelId);
+  const known = vids.filter(v => chOf(v) && chOf(v).subs !== null);
+  const smallShare = known.length ? known.filter(v => chOf(v).subs < SMALL_SUBS).length / known.length : 0;
+  const isNew = c => c && (now - Date.parse(c.createdAt)) / DAY <= NEW_CHANNEL_DAYS;
+  const dated = vids.filter(v => chOf(v));
+  const newShare = dated.length ? dated.filter(v => isNew(chOf(v))).length / dated.length : 0;
+  const typicalViews = median(vids.map(v => v.views));
+  const per = new Map();
+  for (const v of vids) {
+    const c = chOf(v);
+    if (!c) continue;
+    const t = per.get(c.id) || { ...c, hits: 0, hitViews: 0, ageDays: Math.max((now - Date.parse(c.createdAt)) / DAY, 1) };
+    t.hits++; t.hitViews += v.views;
+    per.set(c.id, t);
+  }
+  const channels = [...per.values()].sort((a, b) => b.hitViews - a.hitViews);
+  const demand = clamp01((Math.log10(Math.max(typicalViews, 1)) - 4) / 3);
+  const rpmScore = format === 'short' ? clamp01((rpm - 0.02) / 0.13) : clamp01((rpm - 1) / 13);
+  const score = vids.length ? Math.round(100 * (0.35 * demand + 0.25 * smallShare + 0.25 * newShare + 0.15 * rpmScore)) : 0;
+  return {
+    q: niche.q, rpm, rpmOwn: niche.rpm !== null && niche.rpm !== undefined, count: vids.length, typicalViews, smallShare, newShare,
+    newChannels: channels.filter(isNew).length, channelCount: channels.length, perVideo: typicalViews * rpm / 1000, score, channels,
+  };
+}
+function verdict(score) { return score >= 60 ? 'Strong' : score >= 40 ? 'Worth a look' : 'Hard'; }
+
+async function researchNiches(items, format, days, key, fetcher, onProgress, now = Date.now()) {
+  const client = makeClient(key, fetcher);
+  const publishedAfter = new Date(now - days * DAY).toISOString();
+  const niches = [], allIds = new Set(), problems = [];
+  let fatal = null, done = 0, searches = 0;
+  for (const item of items) {
+    if (fatal) break;
+    try {
+      searches++;
+      const page = await client.call('search', { part: 'snippet', type: 'video', videoDuration: format === 'short' ? 'short' : 'medium', order: 'viewCount',
+        maxResults: 50, regionCode: 'US', relevanceLanguage: 'en', publishedAfter, q: item.q });
+      const ids = (page.items || []).map(i => i.id && i.id.videoId).filter(Boolean);
+      ids.forEach(id => allIds.add(id));
+      niches.push({ q: item.q, rpm: item.rpm, ids });
+    } catch (e) {
+      if (e.fatal) fatal = e.message; else problems.push(item.q + ': ' + e.message);
+    }
+    onProgress && onProgress(++done, items.length);
+  }
+  const videos = [], channels = [], channelIds = new Set();
+  try {
+    for (const ids of chunks([...allIds], 50)) {
+      const page = await client.call('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(','), maxResults: 50 });
+      for (const v of page.items || []) {
+        const seconds = parseDuration(v.contentDetails && v.contentDetails.duration);
+        if (!seconds || !v.statistics || v.statistics.viewCount === undefined) continue;
+        videos.push({ id: v.id, channelId: v.snippet.channelId, views: +v.statistics.viewCount, seconds });
+        channelIds.add(v.snippet.channelId);
+      }
+    }
+    for (const ids of chunks([...channelIds], 50)) {
+      const page = await client.call('channels', { part: 'snippet,statistics', id: ids.join(','), maxResults: 50 });
+      for (const c of page.items || []) {
+        channels.push({ id: c.id, title: c.snippet.title, handle: c.snippet.customUrl || '', createdAt: c.snippet.publishedAt,
+          subs: c.statistics.hiddenSubscriberCount ? null : +c.statistics.subscriberCount });
+      }
+    }
+  } catch (e) {
+    if (e.fatal) fatal = fatal || e.message; else problems.push(e.message);
+  }
+  return { niches, videos, channels, format, days, fatal, problems, searches, units: client.units };
+}
+
 /* ---------- Example data (fictional) ---------- */
 function exampleChannels(now) {
   const seedTitles = ['What Happens If You Swallow Gum?', 'How Elevators Actually Stop', 'Why Your Ears Pop on Planes', 'The Tiny Bug in Your Pillow',
@@ -839,6 +987,72 @@ async function loadDb() {
   showErrors('The database isn\'t ready yet. It appears after the first daily collection runs.', [], 'dbErrors');
   renderDb();
 }
+function renderNiche() {
+  const d = state.niche;
+  if (!d) {
+    $('nicheSummary').textContent = 'Tap Compare niches to score each niche on your list.';
+    $('nicheTable').replaceChildren(el('p', { class: 'empty' }, 'Scores will appear here after you compare niches.'));
+    $('nicheDetail').replaceChildren(el('p', { class: 'empty' }, 'The top channels in each niche will appear here.'));
+    return;
+  }
+  const now = Date.now();
+  const videoById = new Map(d.videos.map(v => [v.id, v])), channelById = new Map(d.channels.map(c => [c.id, c]));
+  const rows = d.niches.map(n => analyzeNiche(n, videoById, channelById, d.format, now)).sort((a, b) => b.score - a.score);
+  const fmt = d.format === 'short' ? 'Shorts' : 'long videos';
+  const period = d.days >= 365 ? 'year' : d.days === 180 ? '6 months' : d.days + ' days';
+  $('nicheSummary').textContent = rows.length + (rows.length === 1 ? ' niche' : ' niches') + ' compared, using ' + fmt + ' from the last ' + period + '.';
+  const money = n => n >= 1000 ? '$' + num(n) : '$' + (n < 1 ? n.toFixed(2) : Math.round(n).toLocaleString('en'));
+  $('nicheTable').replaceChildren(rows.length
+    ? table(['Niche', 'Score', 'Typical top video', 'Small channels', 'New channels', 'RPM', 'Est. per video'], rows.map(r => [
+        r.q,
+        el('span', {}, el('strong', {}, String(r.score)), ' ' + verdict(r.score)),
+        num(r.typicalViews) + ' views',
+        pct(r.smallShare),
+        pct(r.newShare) + ' (' + r.newChannels + ')',
+        money(r.rpm) + (r.rpmOwn ? ' yours' : ''),
+        money(r.perVideo),
+      ]))
+    : el('p', { class: 'empty' }, 'No niches were searched. Check the errors above.'));
+  const inScan = new Set($('channels').value.split('\n').map(l => l.trim().toLowerCase()));
+  $('nicheDetail').replaceChildren(...rows.map((r, i) => {
+    const top = r.channels.slice(0, 8);
+    const body = top.length ? table(['Channel', 'Subscribers', 'Created', 'Top videos', 'Their views', ''], top.map(c => {
+      const ref = channelRef(c), added = inScan.has(ref.toLowerCase());
+      const b = el('button', { type: 'button', className: 'add', disabled: added }, added ? 'Added' : 'Add to scan');
+      b.addEventListener('click', () => { addToScan(ref); b.textContent = 'Added'; b.disabled = true; });
+      const chips = [];
+      if (c.ageDays <= NEW_CHANNEL_DAYS) chips.push(el('span', { class: 'chip' }, 'New'));
+      if (c.subs !== null && c.subs < SMALL_SUBS) chips.push(el('span', { class: 'chip' }, 'Small'));
+      return [
+        el('span', {}, el('a', { href: 'https://www.youtube.com/channel/' + encodeURIComponent(c.id), target: '_blank', rel: 'noopener' }, c.title), chips.length ? el('span', { class: 'chips' }, chips) : ''),
+        num(c.subs), ago(c.ageDays), String(c.hits), num(c.hitViews), b,
+      ];
+    })) : el('p', { class: 'empty' }, 'No matching videos found for this niche.');
+    const det = el('details', { open: i === 0 }, el('summary', {}, r.q + ' · ' + r.channelCount + ' channels in the top ' + r.count + ' videos'), el('div', { class: 'scroll' }, body));
+    return det;
+  }));
+}
+async function onNiche(ev) {
+  ev.preventDefault();
+  const key = $('key').value.trim();
+  const items = $('nicheList').value.split('\n').map(parseNicheLine).filter(Boolean);
+  if (!key) { showErrors('Paste your YouTube API key first. The steps are under "YouTube API key" at the top.', [], 'nicheErrors'); $('keybox').open = true; $('key').focus(); return; }
+  if (!items.length) { showErrors('Add at least one niche.', [], 'nicheErrors'); $('nicheList').focus(); return; }
+  store.set('nox.key', key);
+  store.set('nox.niches', $('nicheList').value);
+  showErrors(null, [], 'nicheErrors');
+  $('nicheGo').disabled = true;
+  $('nicheProgress').textContent = 'Searching YouTube…';
+  const r = await researchNiches(items, $('nicheFormat').value, +$('nicheDays').value, key, (...a) => fetch(...a), (d, n) => { $('nicheProgress').textContent = 'Finished ' + d + ' of ' + n + ' niches…'; });
+  $('nicheGo').disabled = false;
+  $('nicheProgress').textContent = 'Used ' + r.searches + ' of your 100 daily searches and ' + Math.max(r.units - r.searches, 0) + ' other quota units.';
+  showErrors(r.fatal, r.problems, 'nicheErrors', 'Some niches were skipped:');
+  if (r.niches.length) {
+    state.niche = { niches: r.niches, videos: r.videos, channels: r.channels, format: r.format, days: r.days };
+    store.set('nox.niche', JSON.stringify(state.niche));
+    renderNiche();
+  }
+}
 function renderNew() {
   const d = state.discover;
   $('newList').replaceChildren();
@@ -885,12 +1099,14 @@ async function onDiscover(ev) {
     renderNew();
   }
 }
+const TABS = { db: ['tabDb', 'viewDb'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
 function setTab(name) {
-  const views = { db: ['viewDb', 'tabDb'], new: ['viewNew', 'tabNew'], out: ['viewOut', 'tabOut'] };
-  Object.entries(views).forEach(([k, [view, tab]]) => {
+  if (!TABS[name]) name = 'db';
+  for (const [k, [tab, view]] of Object.entries(TABS)) {
     $(view).hidden = k !== name;
     $(tab).setAttribute('aria-selected', String(k === name));
-  });
+  }
+  if (name === 'niche') renderNiche();
   store.set('nox.tab', name);
 }
 function syncKeyBox() {
@@ -946,6 +1162,11 @@ function boot() {
   $('tabDb').addEventListener('click', () => { setTab('db'); renderDb(); });
   ['dbAge', 'dbMinViews', 'dbSubs', 'dbCountry', 'dbSort'].forEach(id => $(id).addEventListener('change', renderDb));
   $('dbSearch').addEventListener('input', renderDb);
+  try { const n = JSON.parse(store.get('nox.niche') || 'null'); if (n && Array.isArray(n.niches)) state.niche = n; } catch (e) { /* start without saved results */ }
+  const savedNiches = store.get('nox.niches');
+  if (savedNiches) $('nicheList').value = savedNiches;
+  $('nicheForm').addEventListener('submit', onNiche);
+  $('tabNiche').addEventListener('click', () => setTab('niche'));
   $('tabNew').addEventListener('click', () => setTab('new'));
   $('tabOut').addEventListener('click', () => setTab('out'));
   $('addAll').addEventListener('click', () => { (state.newList || []).forEach(c => addToScan(channelRef(c))); renderNew(); $('newProgress').textContent = 'Added. Open Outlier videos and tap Scan channels.'; });
@@ -962,8 +1183,8 @@ function boot() {
   });
   render();
   renderNew();
-  const tab = store.get('nox.tab');
-  setTab(tab === 'out' || tab === 'new' ? tab : 'db');
+  renderNiche();
+  setTab(store.get('nox.tab'));
   renderDb();
   loadDb();
 }
