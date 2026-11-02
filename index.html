@@ -101,6 +101,11 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .newview { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; padding-block: 24px 48px; }
+.dbview { display: grid; gap: 24px; padding-block: 24px 48px; }
+.dbsummary { margin: 0; font-weight: 500; }
+.spark { display: block; width: 96px; height: 28px; margin-top: 6px; overflow: visible; }
+.spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.spark circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
 button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 .addall { justify-self: start; }
 @media (max-width: 900px) { .newview { grid-template-columns: minmax(0, 1fr); } }
@@ -121,7 +126,7 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 <header class="band">
   <div class="wrap">
     <h1>Noxi Outlier Finder</h1>
-    <p>Find the videos that beat their own channel's normal views, and the topics those videos have in common.</p>
+    <p>Track new channels that are taking off, and find the videos and topics behind their growth.</p>
   </div>
 </header>
 
@@ -143,9 +148,39 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     </ol>
   </details>
   <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabDb" aria-controls="viewDb">Database</button>
     <button type="button" role="tab" id="tabNew" aria-controls="viewNew">New channels</button>
     <button type="button" role="tab" id="tabOut" aria-controls="viewOut">Outlier videos</button>
   </div>
+</div>
+
+<div class="wrap dbview" id="viewDb" role="tabpanel">
+  <div class="notice bad" id="dbErrors" role="alert" hidden></div>
+  <section class="filters" aria-label="Database filters">
+    <div class="field"><label for="dbAge">Channel created in the last</label>
+      <select id="dbAge"><option value="90">3 months</option><option value="180">6 months</option><option value="365" selected>1 year</option><option value="100000">2 years</option></select></div>
+    <div class="field"><label for="dbMinViews">Total channel views</label>
+      <select id="dbMinViews"><option value="0">Any</option><option value="100000" selected>100,000+</option><option value="1000000">1 million+</option><option value="10000000">10 million+</option></select></div>
+    <div class="field"><label for="dbSubs">Channel size</label>
+      <select id="dbSubs"><option value="Infinity" selected>Any size</option><option value="1000000">Under 1M subscribers</option><option value="100000">Under 100K subscribers</option><option value="10000">Under 10K subscribers</option></select></div>
+    <div class="field"><label for="dbCountry">Country</label>
+      <select id="dbCountry"><option value="">All countries</option></select></div>
+    <div class="field"><label for="dbSort">Sort by</label>
+      <select id="dbSort"><option value="pace" selected>Views per day</option><option value="perVideo">Views per video</option><option value="newest">Newest channel</option><option value="found">Newly found</option></select></div>
+    <div class="field"><label for="dbSearch">Search</label>
+      <input id="dbSearch" type="search" placeholder="Channel or Short title" autocomplete="off"></div>
+  </section>
+  <p id="dbSummary" class="dbsummary"></p>
+  <section class="insight">
+    <h2>Topics across new channels</h2>
+    <p class="hint">Words in the top Shorts of at least 2 channels that match your filters. These point to possible niches.</p>
+    <div class="scroll" id="dbTopics"></div>
+  </section>
+  <section class="insight">
+    <h2>Channels</h2>
+    <div class="list" id="dbList"></div>
+    <p class="hint">Views per day uses the last 7 days once there are two daily snapshots. Until then it's the average since the channel was created. Tap a channel to check its style, because some reuse other people's clips.</p>
+  </section>
 </div>
 
 <div class="wrap newview" id="viewNew" role="tabpanel">
@@ -582,6 +617,33 @@ async function discoverChannels(phrases, days, key, fetcher, onProgress, now = D
   return { channels, videos, phrases, days, fatal, problems, searches, units: client.units };
 }
 
+/* ---------- Database ---------- */
+const DATA_URLS = ['https://raw.githubusercontent.com/xplanxplanet/noxi-outlier-finder/main/data/channels.json', 'data/channels.json'];
+function rankDatabase(channels, f, now) {
+  const needle = f.search.trim().toLowerCase();
+  const list = channels.map(c => {
+    const ageDays = Math.max((now - Date.parse(c.createdAt)) / DAY, 1);
+    const average = c.views / ageDays;
+    return { ...c, ageDays, measured: c.g7 !== null && c.g7 !== undefined, pace: c.g7 ?? average, perVideo: c.views / Math.max(c.videoCount, 1) };
+  }).filter(c => c.ageDays <= f.maxAgeDays && c.views >= f.minViews &&
+    (f.maxSubs === Infinity || (c.subs !== null && c.subs < f.maxSubs)) &&
+    (!f.country || c.country === f.country) &&
+    (!needle || c.title.toLowerCase().includes(needle) || c.top.some(v => v.title.toLowerCase().includes(needle))));
+  const sorters = { pace: (a, b) => b.pace - a.pace, perVideo: (a, b) => b.perVideo - a.perVideo, newest: (a, b) => a.ageDays - b.ageDays,
+    found: (a, b) => (b.firstSeen || '').localeCompare(a.firstSeen || '') || b.pace - a.pace };
+  return list.sort(sorters[f.sort] || sorters.pace);
+}
+/* Total views over time, scaled to its own range. Needs 3 snapshots to show a shape. */
+function sparkPoints(h, w = 96, height = 28, pad = 3) {
+  if (!h || h.length < 3) return null;
+  const x0 = h[0][0], x1 = h[h.length - 1][0], ys = h.map(s => s[1]);
+  const lo = Math.min(...ys), hi = Math.max(...ys);
+  return h.map(s => [
+    +(pad + (x1 === x0 ? 0 : (s[0] - x0) / (x1 - x0)) * (w - pad * 2)).toFixed(1),
+    +(hi === lo ? height / 2 : height - pad - ((s[1] - lo) / (hi - lo)) * (height - pad * 2)).toFixed(1),
+  ]);
+}
+
 /* ---------- Example data (fictional) ---------- */
 function exampleChannels(now) {
   const seedTitles = ['What Happens If You Swallow Gum?', 'How Elevators Actually Stop', 'Why Your Ears Pop on Planes', 'The Tiny Bug in Your Pillow',
@@ -699,6 +761,84 @@ function newChannelRow(c, inScan) {
       chips.length ? el('div', { class: 'chips' }, chips) : ''),
     el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
 }
+function sparkline(c) {
+  const pts = sparkPoints(c.h);
+  if (!pts) return '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'spark');
+  svg.setAttribute('viewBox', '0 0 96 28');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Total views over the last ' + c.h.length + ' daily snapshots');
+  const title = document.createElementNS(NS, 'title');
+  title.textContent = 'Total views: ' + num(c.h[0][1]) + ' to ' + num(c.h[c.h.length - 1][1]) + ' over ' + c.h.length + ' snapshots';
+  const line = document.createElementNS(NS, 'polyline');
+  line.setAttribute('points', pts.map(p => p.join(',')).join(' '));
+  const end = document.createElementNS(NS, 'circle');
+  const last = pts[pts.length - 1];
+  end.setAttribute('cx', last[0]); end.setAttribute('cy', last[1]); end.setAttribute('r', 4);
+  svg.append(title, line, end);
+  return svg;
+}
+function dbRow(c, inScan) {
+  const v = c.top[0];
+  const thumb = el('img', { className: 'thumb', src: 'https://i.ytimg.com/vi/' + encodeURIComponent(v.id) + '/mqdefault.jpg', alt: '', loading: 'lazy' });
+  const add = el('button', { type: 'button', className: 'add', disabled: inScan }, inScan ? 'Added' : 'Add to scan');
+  add.addEventListener('click', () => { addToScan(channelRef(c)); add.textContent = 'Added'; add.disabled = true; });
+  const chips = [];
+  if (c.country) chips.push(el('span', { class: 'chip' }, c.country));
+  if (!c.measured) chips.push(el('span', { class: 'chip' }, 'Average since created'));
+  return el('article', { class: 'video' },
+    el('div', { class: 'mult', title: c.measured ? 'Channel views per day over the last 7 days' : 'Average channel views per day since it was created' }, num(c.pace), el('small', {}, 'views/day')),
+    thumb,
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, el('a', { href: 'https://www.youtube.com/channel/' + encodeURIComponent(c.id), target: '_blank', rel: 'noopener' }, c.title)),
+      el('p', { class: 'vmeta' }, num(c.subs) + ' subs · ' + c.videoCount.toLocaleString('en') + ' videos · created ' + ago(c.ageDays)),
+      el('p', { class: 'vmeta' }, 'Top Short: ', el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id), target: '_blank', rel: 'noopener' }, v.title), ' (' + num(v.views) + ')'),
+      chips.length ? el('div', { class: 'chips' }, chips) : '',
+      sparkline(c)),
+    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
+}
+function renderDb() {
+  const d = state.db;
+  if (!d || !d.channels.length) {
+    $('dbSummary').textContent = state.dbFailed ? '' : (d ? 'The first collection found no channels yet.' : 'Loading the database…');
+    $('dbTopics').replaceChildren(el('p', { class: 'empty' }, 'Topics will appear after the first daily collection.'));
+    $('dbList').replaceChildren(el('p', { class: 'empty' }, 'Channels will appear after the first daily collection.'));
+    return;
+  }
+  const f = { maxAgeDays: +$('dbAge').value, minViews: +$('dbMinViews').value, maxSubs: Number($('dbSubs').value), country: $('dbCountry').value, sort: $('dbSort').value, search: $('dbSearch').value };
+  const list = rankDatabase(d.channels, f, Date.now());
+  const inScan = new Set($('channels').value.split('\n').map(l => l.trim().toLowerCase()));
+  const when = new Date(d.updatedAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' });
+  $('dbSummary').textContent = list.length.toLocaleString('en') + ' of ' + d.channels.length.toLocaleString('en') + ' tracked channels match. Updated ' + when + '.';
+  const videos = list.flatMap(c => c.top.map(v => ({ ...v, channelId: c.id })));
+  const t = newChannelTopics(list, videos, ['animation animated 2d explainer explained shorts facts']);
+  $('dbTopics').replaceChildren(t.length
+    ? table(['Topic', 'Channels', 'Top Short views'], t.map(x => [x.label, String(x.channels), num(x.views)]))
+    : el('p', { class: 'empty' }, 'No shared topics match these filters yet.'));
+  $('dbList').replaceChildren(...(list.length
+    ? list.slice(0, 60).map(c => dbRow(c, inScan.has(channelRef(c).toLowerCase())))
+    : [el('p', { class: 'empty' }, 'No channels match. Lower the views filter or choose a wider channel size or age.')]));
+}
+async function loadDb() {
+  for (const url of DATA_URLS) {
+    try {
+      const res = await fetch(url, { cache: 'no-cache' });
+      if (!res.ok) continue;
+      const d = await res.json();
+      if (!Array.isArray(d.channels)) continue;
+      state.db = d;
+      const countries = [...new Set(d.channels.map(c => c.country).filter(Boolean))].sort();
+      $('dbCountry').append(...countries.map(c => el('option', { value: c }, c)));
+      renderDb();
+      return;
+    } catch (e) { /* try the next location */ }
+  }
+  state.dbFailed = true;
+  showErrors('The database isn\'t ready yet. It appears after the first daily collection runs.', [], 'dbErrors');
+  renderDb();
+}
 function renderNew() {
   const d = state.discover;
   $('newList').replaceChildren();
@@ -746,11 +886,11 @@ async function onDiscover(ev) {
   }
 }
 function setTab(name) {
-  const isNew = name === 'new';
-  $('viewNew').hidden = !isNew;
-  $('viewOut').hidden = isNew;
-  $('tabNew').setAttribute('aria-selected', String(isNew));
-  $('tabOut').setAttribute('aria-selected', String(!isNew));
+  const views = { db: ['viewDb', 'tabDb'], new: ['viewNew', 'tabNew'], out: ['viewOut', 'tabOut'] };
+  Object.entries(views).forEach(([k, [view, tab]]) => {
+    $(view).hidden = k !== name;
+    $(tab).setAttribute('aria-selected', String(k === name));
+  });
   store.set('nox.tab', name);
 }
 function syncKeyBox() {
@@ -803,6 +943,9 @@ function boot() {
   if (savedPhrases) $('phrases').value = savedPhrases;
   $('newForm').addEventListener('submit', onDiscover);
   ['newAge', 'newMinViews', 'newSort'].forEach(id => $(id).addEventListener('change', renderNew));
+  $('tabDb').addEventListener('click', () => { setTab('db'); renderDb(); });
+  ['dbAge', 'dbMinViews', 'dbSubs', 'dbCountry', 'dbSort'].forEach(id => $(id).addEventListener('change', renderDb));
+  $('dbSearch').addEventListener('input', renderDb);
   $('tabNew').addEventListener('click', () => setTab('new'));
   $('tabOut').addEventListener('click', () => setTab('out'));
   $('addAll').addEventListener('click', () => { (state.newList || []).forEach(c => addToScan(channelRef(c))); renderNew(); $('newProgress').textContent = 'Added. Open Outlier videos and tap Scan channels.'; });
@@ -819,7 +962,10 @@ function boot() {
   });
   render();
   renderNew();
-  setTab(store.get('nox.tab') === 'out' ? 'out' : 'new');
+  const tab = store.get('nox.tab');
+  setTab(tab === 'out' || tab === 'new' ? tab : 'db');
+  renderDb();
+  loadDb();
 }
 boot();
 </script>

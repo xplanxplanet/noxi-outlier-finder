@@ -1,0 +1,15 @@
+{
+  "phrases": [
+    "2d animation shorts", "animated explainer", "what happens if animated", "animated facts",
+    "stick figure animation", "what if animated", "animated science facts", "human body animation",
+    "animated history facts", "how it works animation", "animated psychology facts", "animated space facts",
+    "animated animal facts", "explained in 60 seconds animation", "2d animated story", "animated true story",
+    "animated survival", "would you survive animated", "animated medical facts", "weird facts animation",
+    "ms paint explained", "whiteboard animation facts", "cartoon explainer", "doodle animation facts",
+    "animated money facts", "animated food facts", "animated myths", "animated deadliest",
+    "what's inside animation", "why animated explained"
+  ],
+  "maxSearchesPerDay": 30,
+  "maxChannels": 3000,
+  "maxChannelAgeDays": 730
+}
