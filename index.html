@@ -84,6 +84,7 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
 .list { display: grid; gap: 0; border-top: 1px solid var(--line); }
 .video { display: grid; grid-template-columns: 76px 128px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding-block: 12px; border-bottom: 1px solid var(--line); }
 .mult { font: 400 1.35rem/1 var(--display); background: var(--hit); color: var(--on-hit); border-radius: 6px; padding: 8px 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.mult small { display: block; margin-top: 3px; font: 600 .66rem/1 var(--body); }
 .thumb { width: 128px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--line); display: block; }
 .vtitle { font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .vmeta { margin: 2px 0 0; color: var(--muted); font-size: .86rem; overflow-wrap: anywhere; }
@@ -92,6 +93,18 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
 .chip { font-size: .74rem; font-weight: 600; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
 .empty { padding: 20px 0; color: var(--muted); margin: 0; }
+.topbar { display: grid; gap: 14px; padding-block: 18px 0; }
+.keybox { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+.keybox[open] > summary { margin-bottom: 10px; }
+.keybox .field { max-width: 520px; }
+.keybox ol { max-width: 70ch; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.newview { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; padding-block: 24px 48px; }
+button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
+.addall { justify-self: start; }
+@media (max-width: 900px) { .newview { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 620px) { button.add { justify-self: start; } }
 @media (max-width: 900px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .insights { grid-template-columns: minmax(0, 1fr); }
@@ -112,15 +125,76 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
   </div>
 </header>
 
-<div class="wrap layout">
-  <form class="rail" id="setup" novalidate>
-    <h2>Scan channels</h2>
+<div class="wrap topbar">
+  <details class="keybox" id="keybox">
+    <summary id="keySummary">YouTube API key</summary>
     <div class="field">
-      <label for="key">YouTube API key</label>
+      <label for="key">Your key</label>
       <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key">
       <p class="hint">Saved only in this browser and sent only to YouTube.</p>
       <button type="button" class="link" id="forget">Forget my key</button>
     </div>
+    <ol>
+      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project.</li>
+      <li>Open the <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">YouTube Data API v3 page</a> and click Enable.</li>
+      <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credentials</a>, click Create credentials, then API key.</li>
+      <li>Edit the key. Under API restrictions, choose YouTube Data API v3. Under Application restrictions, choose Websites and add <code>https://xplanxplanet.github.io/*</code>.</li>
+      <li>Paste the key above. You don't need to add a card for the free quota.</li>
+    </ol>
+  </details>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabNew" aria-controls="viewNew">New channels</button>
+    <button type="button" role="tab" id="tabOut" aria-controls="viewOut">Outlier videos</button>
+  </div>
+</div>
+
+<div class="wrap newview" id="viewNew" role="tabpanel">
+  <form class="rail" id="newForm" novalidate>
+    <h2>Find new channels</h2>
+    <div class="field">
+      <label for="phrases">Search phrases, one per line</label>
+      <textarea id="phrases" spellcheck="false">2d animation shorts
+animated explainer
+what happens if animated
+animated facts
+stick figure animation</textarea>
+      <p class="hint">Each phrase uses 1 of your 100 daily searches. Words like "2d" and "animated" only guide the search, so check each channel's style yourself.</p>
+    </div>
+    <div class="field">
+      <label for="newAge">Channel created in the last</label>
+      <select id="newAge"><option value="90">3 months</option><option value="180" selected>6 months</option><option value="365">1 year</option><option value="730">2 years</option></select>
+    </div>
+    <button class="primary" id="newGo" type="submit">Find new channels</button>
+    <p class="hint" id="newProgress" role="status"></p>
+  </form>
+  <main class="main">
+    <div class="notice bad" id="newErrors" role="alert" hidden></div>
+    <section class="filters" aria-label="New channel filters">
+      <div class="field"><label for="newMinViews">Total channel views</label>
+        <select id="newMinViews"><option value="0">Any</option><option value="100000" selected>100,000+</option><option value="1000000">1 million+</option><option value="10000000">10 million+</option></select></div>
+      <div class="field"><label for="newSort">Sort by</label>
+        <select id="newSort"><option value="perDay" selected>Views per day</option><option value="perVideo">Views per video</option><option value="newest">Newest channel</option></select></div>
+    </section>
+    <div class="stats">
+      <p id="newSummary"></p>
+      <button type="button" class="addall" id="addAll" hidden>Add all to Outlier videos</button>
+    </div>
+    <section class="insight">
+      <h2>What these new channels make</h2>
+      <p class="hint">Words in the top Shorts of at least 2 new channels. These point to possible niches.</p>
+      <div class="scroll" id="newTopics"></div>
+    </section>
+    <section class="insight">
+      <h2>New channels doing well</h2>
+      <div class="list" id="newList"></div>
+      <p class="hint">Open each channel before trusting it, because some reuse other people's clips. YouTube search won't show every channel, and an older channel that recently restarted won't count as new.</p>
+    </section>
+  </main>
+</div>
+
+<div class="wrap layout" id="viewOut" role="tabpanel">
+  <form class="rail" id="setup" novalidate>
+    <h2>Scan channels</h2>
     <div class="field">
       <label for="channels">Channels, one per line</label>
       <textarea id="channels" spellcheck="false">@zackdfilms
@@ -141,16 +215,6 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
     </div>
     <button class="primary" id="scan" type="submit">Scan channels</button>
     <p class="hint" id="progress" role="status"></p>
-    <details>
-      <summary>Get a free API key</summary>
-      <ol>
-        <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project.</li>
-        <li>Open the <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">YouTube Data API v3 page</a> and click Enable.</li>
-        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credentials</a>, click Create credentials, then API key.</li>
-        <li>Edit the key. Under API restrictions, choose YouTube Data API v3. Under Application restrictions, choose Websites and add <code>https://xplanxplanet.github.io/*</code>.</li>
-        <li>Paste the key above. You don't need to add a card for the free quota.</li>
-      </ol>
-    </details>
   </form>
 
   <main class="main">
@@ -442,6 +506,82 @@ async function scanChannels(lines, depth, key, fetcher, onProgress) {
   return { channels: unique, problems, fatal, units: client.units, requested: inputs.length };
 }
 
+/* ---------- New channel discovery ---------- */
+const MIN_NEW_VIDEOS = 3;
+function chunks(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
+
+function rankNewChannels(channels, videos, f, now) {
+  const list = channels.map(c => {
+    const ageDays = Math.max((now - Date.parse(c.createdAt)) / DAY, 1);
+    const own = videos.filter(v => v.channelId === c.id).sort((a, b) => b.views - a.views);
+    return { ...c, ageDays, perDay: c.views / ageDays, perVideo: c.views / Math.max(c.videoCount, 1), top: own[0] || null };
+  }).filter(c => c.ageDays <= f.maxAgeDays && c.videoCount >= MIN_NEW_VIDEOS && c.views >= f.minViews && c.top);
+  const sorters = { perDay: (a, b) => b.perDay - a.perDay, perVideo: (a, b) => b.perVideo - a.perVideo, newest: (a, b) => a.ageDays - b.ageDays };
+  return list.sort(sorters[f.sort] || sorters.perDay);
+}
+
+function newChannelTopics(list, videos, phrases, limit = 10) {
+  const ids = new Set(list.map(c => c.id));
+  const searched = new Set(phrases.flatMap(p => words(p).map(stem)));
+  const tally = new Map();
+  videos.filter(v => ids.has(v.channelId)).forEach(v => terms(v.title).forEach((label, key) => {
+    if (key.split(' ').every(k => searched.has(k))) return;
+    const t = tally.get(key) || { key, label, channels: new Set(), views: 0 };
+    t.channels.add(v.channelId);
+    t.views += v.views;
+    tally.set(key, t);
+  }));
+  let out = [...tally.values()].filter(t => t.channels.size >= 2).map(t => ({ key: t.key, label: t.label, channels: t.channels.size, views: t.views }));
+  const longer = out.filter(t => t.key.includes(' '));
+  out = out.filter(t => t.key.includes(' ') || !longer.some(p => p.channels === t.channels && p.key.split(' ').includes(t.key)));
+  return out.sort((a, b) => b.channels - a.channels || b.views - a.views).slice(0, limit);
+}
+
+async function discoverChannels(phrases, days, key, fetcher, onProgress, now = Date.now()) {
+  const client = makeClient(key, fetcher);
+  const publishedAfter = new Date(now - days * DAY).toISOString();
+  const videoIds = new Set(), channelIds = new Set(), problems = [];
+  let fatal = null, done = 0, searches = 0;
+  for (const q of phrases) {
+    if (fatal) break;
+    try {
+      searches++;
+      const page = await client.call('search', { part: 'snippet', type: 'video', videoDuration: 'short', order: 'viewCount', maxResults: 50, regionCode: 'US', relevanceLanguage: 'en', publishedAfter, q });
+      for (const item of page.items || []) {
+        if (item.id && item.id.videoId) videoIds.add(item.id.videoId);
+        if (item.snippet && item.snippet.channelId) channelIds.add(item.snippet.channelId);
+      }
+    } catch (e) {
+      if (e.fatal) fatal = e.message; else problems.push(q + ': ' + e.message);
+    }
+    onProgress && onProgress(++done, phrases.length);
+  }
+  const channels = [], videos = [];
+  try {
+    for (const ids of chunks([...channelIds], 50)) {
+      const page = await client.call('channels', { part: 'snippet,statistics', id: ids.join(','), maxResults: 50 });
+      for (const c of page.items || []) {
+        if (Date.parse(c.snippet.publishedAt) < now - days * DAY) continue;
+        channels.push({ id: c.id, title: c.snippet.title, handle: c.snippet.customUrl || '', country: c.snippet.country || '', createdAt: c.snippet.publishedAt,
+          subs: c.statistics.hiddenSubscriberCount ? null : +c.statistics.subscriberCount, views: +c.statistics.viewCount, videoCount: +c.statistics.videoCount });
+      }
+    }
+    const keep = new Set(channels.map(c => c.id));
+    for (const ids of chunks([...videoIds], 50)) {
+      const page = await client.call('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(','), maxResults: 50 });
+      for (const v of page.items || []) {
+        const seconds = parseDuration(v.contentDetails && v.contentDetails.duration);
+        if (!keep.has(v.snippet.channelId) || !seconds || seconds > SHORT_MAX_SECONDS || !v.statistics || v.statistics.viewCount === undefined) continue;
+        const th = v.snippet.thumbnails || {};
+        videos.push({ id: v.id, channelId: v.snippet.channelId, title: v.snippet.title, views: +v.statistics.viewCount, publishedAt: v.snippet.publishedAt, thumb: (th.medium || th.default || {}).url || '' });
+      }
+    }
+  } catch (e) {
+    if (e.fatal) fatal = fatal || e.message; else problems.push(e.message);
+  }
+  return { channels, videos, phrases, days, fatal, problems, searches, units: client.units };
+}
+
 /* ---------- Example data (fictional) ---------- */
 function exampleChannels(now) {
   const seedTitles = ['What Happens If You Swallow Gum?', 'How Elevators Actually Stop', 'Why Your Ears Pop on Planes', 'The Tiny Bug in Your Pillow',
@@ -532,20 +672,106 @@ function render() {
     ? outliers.slice(0, 100).map(videoRow)
     : [el('p', { class: 'empty' }, 'No videos match these filters. Try a lower multiple, a longer time period or the other format.')]));
 }
-function showErrors(fatal, problems) {
-  const box = $('errors');
+function channelRef(c) {
+  if (c.handle) return c.handle.startsWith('@') ? c.handle : '@' + c.handle;
+  return c.id;
+}
+function addToScan(ref) {
+  const lines = $('channels').value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.some(l => l.toLowerCase() === ref.toLowerCase())) lines.push(ref);
+  $('channels').value = lines.join('\n');
+  store.set('nox.channels', $('channels').value);
+}
+function newChannelRow(c, inScan) {
+  const v = c.top;
+  const img = v.thumb && /^https:\/\/i\d?\.ytimg\.com\//.test(v.thumb) ? el('img', { className: 'thumb', src: v.thumb, alt: '', loading: 'lazy' }) : el('div', { class: 'thumb' });
+  const add = el('button', { type: 'button', className: 'add', disabled: inScan }, inScan ? 'Added' : 'Add to scan');
+  add.addEventListener('click', () => { addToScan(channelRef(c)); add.textContent = 'Added'; add.disabled = true; });
+  const chips = [];
+  if (c.country) chips.push(el('span', { class: 'chip' }, c.country));
+  return el('article', { class: 'video' },
+    el('div', { class: 'mult', title: 'Channel views per day since it was created' }, num(c.perDay), el('small', {}, 'views/day')),
+    img,
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, el('a', { href: 'https://www.youtube.com/channel/' + encodeURIComponent(c.id), target: '_blank', rel: 'noopener' }, c.title)),
+      el('p', { class: 'vmeta' }, num(c.subs) + ' subs · ' + c.videoCount.toLocaleString('en') + ' videos · created ' + ago(c.ageDays)),
+      el('p', { class: 'vmeta' }, 'Top Short: ', el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id), target: '_blank', rel: 'noopener' }, v.title), ' (' + num(v.views) + ')'),
+      chips.length ? el('div', { class: 'chips' }, chips) : ''),
+    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
+}
+function renderNew() {
+  const d = state.discover;
+  $('newList').replaceChildren();
+  if (!d) {
+    $('newSummary').textContent = 'Tap Find new channels to see recently created channels with popular Shorts.';
+    $('newTopics').replaceChildren(el('p', { class: 'empty' }, 'Topics will appear here after a search.'));
+    $('newList').append(el('p', { class: 'empty' }, 'New channels will appear here, ranked by views per day.'));
+    $('addAll').hidden = true;
+    return;
+  }
+  const f = { maxAgeDays: +$('newAge').value, minViews: +$('newMinViews').value, sort: $('newSort').value };
+  const list = rankNewChannels(d.channels, d.videos, f, Date.now());
+  state.newList = list;
+  const inScan = new Set($('channels').value.split('\n').map(l => l.trim().toLowerCase()));
+  const wider = f.maxAgeDays > d.days ? ' Search again to include older channels.' : '';
+  $('newSummary').textContent = list.length + (list.length === 1 ? ' new channel' : ' new channels') + ' match, from ' + d.phrases.length + (d.phrases.length === 1 ? ' search.' : ' searches.') + wider;
+  $('addAll').hidden = !list.length;
+  const t = newChannelTopics(list, d.videos, d.phrases);
+  $('newTopics').replaceChildren(t.length
+    ? table(['Topic', 'New channels', 'Views'], t.map(x => [x.label, String(x.channels), num(x.views)]))
+    : el('p', { class: 'empty' }, 'No shared topics yet. Try more search phrases or lower the views filter.'));
+  $('newList').append(...(list.length
+    ? list.slice(0, 50).map(c => newChannelRow(c, inScan.has(channelRef(c).toLowerCase())))
+    : [el('p', { class: 'empty' }, 'No new channels match. Lower the views filter, choose an older channel age or try other phrases.')]));
+}
+async function onDiscover(ev) {
+  ev.preventDefault();
+  const key = $('key').value.trim();
+  const phrases = $('phrases').value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!key) { showErrors('Paste your YouTube API key first. The steps are under "YouTube API key" at the top.', [], 'newErrors'); $('keybox').open = true; $('key').focus(); return; }
+  if (!phrases.length) { showErrors('Add at least one search phrase.', [], 'newErrors'); $('phrases').focus(); return; }
+  store.set('nox.key', key);
+  store.set('nox.phrases', $('phrases').value);
+  showErrors(null, [], 'newErrors');
+  $('newGo').disabled = true;
+  $('newProgress').textContent = 'Searching YouTube…';
+  const r = await discoverChannels(phrases, +$('newAge').value, key, (...a) => fetch(...a), (d, n) => { $('newProgress').textContent = 'Finished ' + d + ' of ' + n + ' searches…'; });
+  $('newGo').disabled = false;
+  $('newProgress').textContent = 'Used ' + r.searches + ' of your 100 daily searches and ' + Math.max(r.units - r.searches, 0) + ' other quota units.';
+  showErrors(r.fatal, r.problems, 'newErrors', 'Some searches were skipped:');
+  if (r.channels.length || !r.fatal) {
+    state.discover = { channels: r.channels, videos: r.videos, phrases: r.phrases, days: r.days };
+    store.set('nox.discover', JSON.stringify(state.discover));
+    renderNew();
+  }
+}
+function setTab(name) {
+  const isNew = name === 'new';
+  $('viewNew').hidden = !isNew;
+  $('viewOut').hidden = isNew;
+  $('tabNew').setAttribute('aria-selected', String(isNew));
+  $('tabOut').setAttribute('aria-selected', String(!isNew));
+  store.set('nox.tab', name);
+}
+function syncKeyBox() {
+  const has = !!$('key').value.trim();
+  $('keySummary').textContent = has ? 'YouTube API key (saved)' : 'YouTube API key: add yours to start';
+  return has;
+}
+function showErrors(fatal, problems, boxId = 'errors', heading = 'Some channels were skipped:') {
+  const box = $(boxId);
   if (!fatal && !problems.length) { box.hidden = true; box.replaceChildren(); return; }
   box.hidden = false;
   box.replaceChildren(...[
     fatal ? el('div', {}, fatal) : null,
-    problems.length ? el('div', {}, 'Some channels were skipped:', el('ul', {}, problems.map(p => el('li', {}, p)))) : null,
+    problems.length ? el('div', {}, heading, el('ul', {}, problems.map(p => el('li', {}, p)))) : null,
   ].filter(Boolean));
 }
 async function onScan(ev) {
   ev.preventDefault();
   const key = $('key').value.trim();
   const lines = $('channels').value.split('\n').filter(l => l.trim());
-  if (!key) { showErrors('Paste your YouTube API key first. The steps are under "Get a free API key".', []); $('key').focus(); return; }
+  if (!key) { showErrors('Paste your YouTube API key first. The steps are under "YouTube API key" at the top.', []); $('keybox').open = true; $('key').focus(); return; }
   if (!lines.length) { showErrors('Add at least one channel to scan.', []); $('channels').focus(); return; }
   store.set('nox.key', key);
   store.set('nox.channels', $('channels').value);
@@ -570,10 +796,20 @@ function boot() {
   if (Array.isArray(restored) && restored.length) { state.channels = restored; state.sample = false; }
   else { state.channels = exampleChannels(Date.now()); state.sample = true; }
   $('key').value = store.get('nox.key') || '';
+  $('keybox').open = !syncKeyBox();
+  $('key').addEventListener('input', syncKeyBox);
+  try { const d = JSON.parse(store.get('nox.discover') || 'null'); if (d && Array.isArray(d.channels)) state.discover = d; } catch (e) { /* start without saved results */ }
+  const savedPhrases = store.get('nox.phrases');
+  if (savedPhrases) $('phrases').value = savedPhrases;
+  $('newForm').addEventListener('submit', onDiscover);
+  ['newAge', 'newMinViews', 'newSort'].forEach(id => $(id).addEventListener('change', renderNew));
+  $('tabNew').addEventListener('click', () => setTab('new'));
+  $('tabOut').addEventListener('click', () => setTab('out'));
+  $('addAll').addEventListener('click', () => { (state.newList || []).forEach(c => addToScan(channelRef(c))); renderNew(); $('newProgress').textContent = 'Added. Open Outlier videos and tap Scan channels.'; });
   const savedChannels = store.get('nox.channels');
   if (savedChannels) $('channels').value = savedChannels;
   $('setup').addEventListener('submit', onScan);
-  $('forget').addEventListener('click', () => { store.del('nox.key'); $('key').value = ''; $('progress').textContent = 'Key removed from this browser.'; });
+  $('forget').addEventListener('click', () => { store.del('nox.key'); $('key').value = ''; syncKeyBox(); });
   ['format', 'minMult', 'windowDays', 'minViews', 'maxSubs', 'sort'].forEach(id => $(id).addEventListener('change', render));
   $('csv').addEventListener('click', () => {
     const url = URL.createObjectURL(new Blob(['﻿' + toCsv(state.current)], { type: 'text/csv;charset=utf-8' }));
@@ -582,6 +818,8 @@ function boot() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
   render();
+  renderNew();
+  setTab(store.get('nox.tab') === 'out' ? 'out' : 'new');
 }
 boot();
 </script>
