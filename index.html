@@ -112,6 +112,22 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 .nichedetail details { min-width: 0; }
 .nichetable td:not(:first-child), .nichedetail td:not(:first-child) { white-space: nowrap; }
 .nichetable td:first-child { min-width: 9em; }
+/* My channel and Ideas */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 2px; }
+.tile span { color: var(--muted); font-size: .8rem; font-weight: 600; }
+.tile strong { font: 400 1.5rem/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.tile small { color: var(--muted); font-size: .8rem; }
+.mult.low { background: var(--line); color: var(--ink); }
+.tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tagrow select { width: auto; padding: 3px 6px; font-size: .8rem; }
+.tagrow input { width: auto; flex: 1 1 140px; padding: 3px 8px; font-size: .8rem; }
+.idea { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.idea .acts { display: flex; gap: 6px; align-items: center; }
+.idea select { width: auto; padding: 4px 6px; font-size: .84rem; }
+.addidea { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (max-width: 620px) { .idea { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) { .newview { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 620px) { button.add { justify-self: start; } }
 @media (max-width: 900px) {
@@ -130,7 +146,7 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 <header class="band">
   <div class="wrap">
     <h1>Noxi Outlier Finder</h1>
-    <p>Compare niches, track new channels that are taking off, and find the videos and topics behind their growth.</p>
+    <p>Learn what works on your own Shorts, find channels and formats worth copying, and keep your next ideas in one place.</p>
   </div>
 </header>
 
@@ -152,6 +168,8 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     </ol>
   </details>
   <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabMine" aria-controls="viewMine">My channel</button>
+    <button type="button" role="tab" id="tabIdeas" aria-controls="viewIdeas">Ideas</button>
     <button type="button" role="tab" id="tabDb" aria-controls="viewDb">Database</button>
     <button type="button" role="tab" id="tabQuiet" aria-controls="viewQuiet">Quiet channels</button>
     <button type="button" role="tab" id="tabNiche" aria-controls="viewNiche">Niche finder</button>
@@ -187,6 +205,78 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     <div class="list" id="dbList"></div>
     <p class="hint">Views per day uses the last 7 days once there are two daily snapshots. Until then it's the average since the channel was created. Tap a channel to check its style, because some reuse other people's clips.</p>
   </section>
+</div>
+
+<div class="wrap newview" id="viewMine" role="tabpanel">
+  <form class="rail" id="mineForm" novalidate>
+    <h2>Your channel</h2>
+    <div class="field">
+      <label for="mineHandle">Your @handle or channel link</label>
+      <input id="mineHandle" type="text" autocomplete="off" spellcheck="false" placeholder="@yourchannel">
+    </div>
+    <button class="primary" id="mineGo" type="submit">Load my Shorts</button>
+    <p class="hint" id="mineProgress" role="status"></p>
+    <details>
+      <summary>Add YouTube Studio data (optional)</summary>
+      <p class="hint">This adds what the public API can't see: how many people stayed to watch, how much of each Short they watched, and subscribers gained.</p>
+      <ol>
+        <li>Open <a href="https://studio.youtube.com" target="_blank" rel="noopener">YouTube Studio</a> on a computer, then Analytics, then Advanced mode.</li>
+        <li>Choose the Content tab, set the dates to Lifetime and pick Shorts.</li>
+        <li>Click Export current view, then Comma-separated values (.csv).</li>
+        <li>Unzip it and choose <code>Table data.csv</code> below.</li>
+      </ol>
+      <div class="field" style="margin-top:10px"><label for="studioFile">Studio file</label><input id="studioFile" type="file" accept=".csv,text/csv"></div>
+      <p class="hint" id="studioNote" role="status"></p>
+    </details>
+    <details>
+      <summary>Back up your notes and ideas</summary>
+      <p class="hint">Tags, notes, ideas and Studio data are saved only in this browser. Download a backup to move them to another device.</p>
+      <div class="row" style="margin-top:8px"><button type="button" id="backupSave">Download backup</button><button type="button" id="backupPick">Restore a backup</button></div>
+      <input id="backupLoad" type="file" accept=".json,application/json" hidden>
+      <p class="hint" id="backupNote" role="status"></p>
+    </details>
+  </form>
+  <main class="main">
+    <div class="notice bad" id="mineErrors" role="alert" hidden></div>
+    <div class="tiles" id="mineTiles"></div>
+    <section class="insight">
+      <h2>What works on your channel</h2>
+      <p class="hint">Each group's typical Short compared with your normal views. Groups with fewer than 3 Shorts are marked, because a couple of videos can be luck.</p>
+      <div class="insights">
+        <div class="scroll" id="mineByLength"></div>
+        <div class="scroll" id="mineByStyle"></div>
+      </div>
+      <div class="scroll" id="mineByTag"></div>
+    </section>
+    <section class="filters" aria-label="Your Shorts filters">
+      <div class="field"><label for="mineSort">Sort by</label>
+        <select id="mineSort"><option value="newest" selected>Newest</option><option value="multiple">Beat my normal most</option><option value="views">Most views</option><option value="stay">Stayed to watch</option></select></div>
+      <div class="field"><label for="mineTagFilter">Show</label>
+        <select id="mineTagFilter"><option value="">All Shorts</option><option value="untagged">Not tagged yet</option></select></div>
+    </section>
+    <section class="insight">
+      <h2>Your Shorts</h2>
+      <div class="list" id="mineList"></div>
+      <p class="hint">Your normal is the median views of your Shorts that are at least 7 days old. Tag each Short with its hook and what you tried, so the table above can show which choices work for you.</p>
+    </section>
+  </main>
+</div>
+
+<div class="wrap dbview" id="viewIdeas" role="tabpanel">
+  <section class="insight">
+    <h2>Add an idea</h2>
+    <form class="addidea" id="ideaForm" novalidate>
+      <input id="ideaText" type="text" placeholder="What would the Short be about?" autocomplete="off">
+      <button class="primary" type="submit">Add</button>
+    </form>
+    <p class="hint">You can also tap "Save idea" on any video or channel in the other tabs. Ideas are saved in this browser.</p>
+  </section>
+  <section class="filters" aria-label="Idea filters">
+    <div class="field"><label for="ideaShow">Show</label>
+      <select id="ideaShow"><option value="open" selected>Not posted yet</option><option value="">All ideas</option><option value="Idea">Idea</option><option value="Scripted">Scripted</option><option value="Made">Made</option><option value="Posted">Posted</option></select></div>
+  </section>
+  <p id="ideaSummary" class="dbsummary"></p>
+  <div class="list" id="ideaList"></div>
 </div>
 
 <div class="wrap dbview" id="viewQuiet" role="tabpanel">
@@ -573,6 +663,8 @@ async function fetchChannel(client, input, depth) {
       if (v.snippet.liveBroadcastContent !== 'none' || !v.statistics || v.statistics.viewCount === undefined || !seconds) continue;
       const th = v.snippet.thumbnails || {};
       videos.push({ id: v.id, title: v.snippet.title, publishedAt: v.snippet.publishedAt, views: +v.statistics.viewCount, seconds,
+        likes: v.statistics.likeCount === undefined ? null : +v.statistics.likeCount,
+        comments: v.statistics.commentCount === undefined ? null : +v.statistics.commentCount,
         thumb: (th.medium || th.default || {}).url || '' });
     }
   }
@@ -605,6 +697,98 @@ async function scanChannels(lines, depth, key, fetcher, onProgress) {
   await Promise.all([worker(), worker(), worker()]);
   const unique = [...new Map(channels.map(c => [c.id, c])).values()];
   return { channels: unique, problems, fatal, units: client.units, requested: inputs.length };
+}
+
+/* ---------- My channel ---------- */
+const MINE_MATURE_DAYS = 7;
+const MIN_GROUP = 3;
+const HOOKS = ['Question', 'Shocking fact', 'Result first', 'Visual first', 'Story', 'List or countdown', 'Other'];
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim()));
+}
+function toSeconds(v) {
+  const s = String(v || '').trim();
+  if (/^\d+(:\d+){1,2}$/.test(s)) return s.split(':').reduce((t, n) => t * 60 + +n, 0);
+  const n = parseFloat(s.replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+/* Reads YouTube Studio's "Table data.csv". Returns { byId, columns } or throws with a plain message. */
+function parseStudio(text) {
+  const rows = parseCsv(text.replace(/^\uFEFF/, ''));
+  if (rows.length < 2) throw new Error('That file has no rows. Choose "Table data.csv" from the Studio export.');
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const col = re => head.findIndex(h => re.test(h));
+  const id = col(/^(content|video)$|video id/);
+  if (id < 0) throw new Error('That file has no Content column. Choose "Table data.csv" from the Studio export.');
+  const cols = {
+    stay: col(/stayed to watch|viewed \(vs|viewed vs/),
+    apv: col(/average percentage viewed/),
+    avd: col(/average view duration/),
+    subs: col(/^subscribers( gained)?$|^subscribers$/),
+  };
+  const num = v => { const n = parseFloat(String(v || '').replace(/[,%]/g, '')); return Number.isFinite(n) ? n : null; };
+  const byId = {};
+  for (const r of rows.slice(1)) {
+    const vid = (r[id] || '').trim();
+    if (!/^[\w-]{11}$/.test(vid)) continue;
+    byId[vid] = {
+      stay: cols.stay >= 0 ? num(r[cols.stay]) : null,
+      apv: cols.apv >= 0 ? num(r[cols.apv]) : null,
+      avd: cols.avd >= 0 ? toSeconds(r[cols.avd]) : null,
+      subs: cols.subs >= 0 ? num(r[cols.subs]) : null,
+    };
+  }
+  const found = Object.keys(cols).filter(k => cols[k] >= 0);
+  if (!Object.keys(byId).length) throw new Error('No videos were found in that file. Export the Content tab with Shorts selected.');
+  return { byId, columns: found };
+}
+function lengthBucket(sec) { return sec < 20 ? 'Under 20 s' : sec < 40 ? '20–39 s' : sec < 60 ? '40–59 s' : '60 s or more'; }
+
+/* Scores each of your Shorts against your own normal, and groups them to show what works for you. */
+function analyzeMine(channel, studio, tags, now) {
+  const shorts = channel.videos.filter(v => videoFormat(v) === 'short');
+  const age = v => Math.max((now - Date.parse(v.publishedAt)) / DAY, 0);
+  const mature = shorts.filter(v => age(v) >= MINE_MATURE_DAYS);
+  const normal = median((mature.length >= MIN_GROUP ? mature : shorts).map(v => v.views));
+  const rows = shorts.map(v => {
+    const ageDays = age(v);
+    return { ...v, ageDays, perDay: v.views / Math.max(ageDays, 1), multiple: normal > 0 ? v.views / normal : 0,
+      young: ageDays < MINE_MATURE_DAYS, studio: (studio && studio[v.id]) || null, tag: tags[v.id] || {} };
+  });
+  const scored = rows.filter(r => !r.young);
+  const group = (keyOf, order) => {
+    const m = new Map();
+    scored.forEach(r => { const k = keyOf(r); if (k) (m.get(k) || m.set(k, []).get(k)).push(r); });
+    const out = [...m.entries()].map(([name, list]) => ({ name, count: list.length, typical: median(list.map(r => r.multiple)),
+      stay: median(list.map(r => r.studio && r.studio.stay).filter(x => x !== null && x !== undefined)) || null }));
+    return order ? out.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)) : out.sort((a, b) => b.typical - a.typical);
+  };
+  const byLength = group(r => lengthBucket(r.seconds), ['Under 20 s', '20–39 s', '40–59 s', '60 s or more']);
+  const byStyle = PATTERNS.map(([name, re]) => {
+    const list = scored.filter(r => re.test(cleanTitle(r.title)));
+    return { name, count: list.length, typical: median(list.map(r => r.multiple)) };
+  }).filter(g => g.count >= 1).sort((a, b) => b.typical - a.typical);
+  const byTag = group(r => r.tag.hook);
+  const last = shorts.length ? Math.min(...shorts.map(age)) : null;
+  const recent = shorts.filter(v => age(v) <= 30).length;
+  return { rows, normal, byLength, byStyle, byTag, last, recent, total: shorts.length, matureCount: mature.length };
 }
 
 /* ---------- New channel discovery ---------- */
@@ -894,7 +1078,8 @@ function videoRow(r) {
       el('p', { class: 'vtitle' }, title),
       el('p', { class: 'vmeta' }, r.channel + ' · ' + num(r.subs) + ' subs · ' + ago(r.ageDays)),
       chips.length ? el('div', { class: 'chips' }, chips) : ''),
-    el('div', { class: 'nums' }, el('strong', {}, num(r.views) + ' views'), el('span', {}, 'Normal ' + num(r.normal)), el('span', {}, num(r.perDay) + '/day')));
+    el('div', { class: 'nums' }, el('strong', {}, num(r.views) + ' views'), el('span', {}, 'Normal ' + num(r.normal)), el('span', {}, num(r.perDay) + '/day'),
+      real ? saveIdeaButton(r.title, 'https://www.youtube.com/watch?v=' + r.id, r.channel) : ''));
 }
 function render() {
   const { rows, noBaseline } = scoreVideos(state.channels, Date.now());
@@ -981,7 +1166,8 @@ function dbRow(c, inScan) {
       el('p', { class: 'vmeta' }, 'Top Short: ', el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id), target: '_blank', rel: 'noopener' }, v.title), ' (' + num(v.views) + ')'),
       chips.length ? el('div', { class: 'chips' }, chips) : '',
       sparkline(c)),
-    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
+    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add,
+      saveIdeaButton(v.title, 'https://www.youtube.com/watch?v=' + v.id, c.title)));
 }
 function quietRow(c, inScan) {
   const v = c.top[0];
@@ -1001,7 +1187,8 @@ function quietRow(c, inScan) {
       el('p', { class: 'vmeta' }, 'Top Short: ', el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id), target: '_blank', rel: 'noopener' }, v.title), ' (' + num(v.views) + ')'),
       el('div', { class: 'chips' }, chips),
       sparkline(c)),
-    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
+    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add,
+      saveIdeaButton('Format like ' + c.title + ': ' + v.title, link, c.title)));
 }
 function renderQuiet() {
   const d = state.db;
@@ -1178,7 +1365,183 @@ async function onDiscover(ev) {
     renderNew();
   }
 }
-const TABS = { db: ['tabDb', 'viewDb'], quiet: ['tabQuiet', 'viewQuiet'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
+/* ---------- Saved in this browser: ideas, tags, Studio data, your channel ---------- */
+function loadJson(key, fallback) { try { const v = JSON.parse(store.get(key) || 'null'); return v ?? fallback; } catch (e) { return fallback; } }
+const saved = {
+  ideas: () => { const v = loadJson('nox.ideas', []); return Array.isArray(v) ? v.filter(i => i && typeof i.text === 'string') : []; },
+  tags: () => { const v = loadJson('nox.tags', {}); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; },
+  studio: () => { const v = loadJson('nox.studio', null); return v && v.byId && Array.isArray(v.columns) ? v : null; },
+};
+function setIdeas(list) { store.set('nox.ideas', JSON.stringify(list)); }
+function addIdea(text, link, from) {
+  const list = saved.ideas();
+  if (link && list.some(i => i.link === link)) return false;
+  list.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, link: link || '', from: from || '', status: 'Idea', added: new Date().toISOString().slice(0, 10) });
+  setIdeas(list);
+  return true;
+}
+function saveIdeaButton(text, link, from) {
+  const has = saved.ideas().some(i => i.link === link);
+  const b = el('button', { type: 'button', className: 'add', disabled: has }, has ? 'Saved' : 'Save idea');
+  b.addEventListener('click', () => { addIdea(text, link, from); b.textContent = 'Saved'; b.disabled = true; renderIdeas(); });
+  return b;
+}
+const STATUSES = ['Idea', 'Scripted', 'Made', 'Posted'];
+function renderIdeas() {
+  const all = saved.ideas(), show = $('ideaShow').value;
+  const list = all.filter(i => show === 'open' ? i.status !== 'Posted' : !show || i.status === show);
+  const counts = STATUSES.map(st => all.filter(i => i.status === st).length + ' ' + st.toLowerCase()).join(' · ');
+  $('ideaSummary').textContent = all.length ? all.length + (all.length === 1 ? ' idea: ' : ' ideas: ') + counts + '.' : '';
+  $('ideaList').replaceChildren(...(list.length ? list.map(i => {
+    const status = el('select', { ariaLabel: 'Status' }, STATUSES.map(st => el('option', { value: st, selected: st === i.status }, st)));
+    status.addEventListener('change', () => { setIdeas(saved.ideas().map(x => x.id === i.id ? { ...x, status: status.value } : x)); renderIdeas(); });
+    const del = el('button', { type: 'button', className: 'add' }, 'Delete');
+    del.addEventListener('click', () => { setIdeas(saved.ideas().filter(x => x.id !== i.id)); renderIdeas(); });
+    const meta = [i.from ? 'From ' + i.from : '', 'added ' + i.added].filter(Boolean).join(' · ');
+    return el('div', { class: 'idea' },
+      el('div', { style: 'min-width:0' },
+        el('p', { class: 'vtitle' }, i.link && /^https:\/\/www\.youtube\.com\//.test(i.link) ? el('a', { href: i.link, target: '_blank', rel: 'noopener' }, i.text) : i.text),
+        el('p', { class: 'vmeta' }, meta)),
+      el('div', { class: 'acts' }, status, del));
+  }) : [el('p', { class: 'empty' }, all.length ? 'No ideas with this status.' : 'No ideas yet. Add one above, or tap "Save idea" in the other tabs.')]));
+}
+
+function tile(label, value, sub) { return el('div', { class: 'tile' }, el('span', {}, label), el('strong', {}, value), sub ? el('small', {}, sub) : ''); }
+function groupTable(title, groups, withStay) {
+  if (!groups.length) return el('p', { class: 'empty' }, title + ': not enough Shorts yet.');
+  const heads = [title, 'Shorts', 'Typical vs normal'].concat(withStay ? ['Stayed to watch'] : []);
+  return table(heads, groups.map(g => [g.name, g.count < MIN_GROUP ? g.count + ' (few)' : String(g.count), mult(g.typical)]
+    .concat(withStay ? [g.stay ? Math.round(g.stay) + '%' : '–'] : [])));
+}
+function mineRow(r) {
+  const thumb = el('img', { className: 'thumb', src: 'https://i.ytimg.com/vi/' + encodeURIComponent(r.id) + '/mqdefault.jpg', alt: '', loading: 'lazy' });
+  const hook = el('select', { ariaLabel: 'Hook used' }, el('option', { value: '' }, 'Hook: not set'), HOOKS.map(h => el('option', { value: h, selected: r.tag.hook === h }, h)));
+  const note = el('input', { type: 'text', value: r.tag.note || '', placeholder: 'What did you try?', ariaLabel: 'Note' });
+  const save = () => {
+    const tags = saved.tags();
+    tags[r.id] = { hook: hook.value, note: note.value.trim() };
+    if (!tags[r.id].hook && !tags[r.id].note) delete tags[r.id];
+    store.set('nox.tags', JSON.stringify(tags));
+  };
+  hook.addEventListener('change', () => { save(); renderMine(); });
+  note.addEventListener('change', save);
+  const facts = [num(r.likes) + ' likes', num(r.comments) + ' comments', r.seconds + ' s'];
+  const st = r.studio;
+  if (st) {
+    if (st.stay !== null) facts.push(Math.round(st.stay) + '% stayed');
+    if (st.apv !== null) facts.push(Math.round(st.apv) + '% watched');
+    if (st.subs !== null) facts.push('+' + st.subs + ' subs');
+  }
+  return el('article', { class: 'video' },
+    el('div', { class: 'mult' + (r.multiple < 1 || r.young ? ' low' : ''), title: r.young ? 'Less than 7 days old, still growing' : 'Views compared with your normal' },
+      r.young ? 'New' : mult(r.multiple), el('small', {}, r.young ? 'still growing' : 'vs normal')),
+    thumb,
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(r.id), target: '_blank', rel: 'noopener' }, r.title)),
+      el('p', { class: 'vmeta' }, ago(r.ageDays) + ' · ' + facts.join(' · ')),
+      el('div', { class: 'tagrow' }, hook, note)),
+    el('div', { class: 'nums' }, el('strong', {}, num(r.views) + ' views'), el('span', {}, num(r.perDay) + '/day')));
+}
+function renderMine() {
+  const ch = state.mine;
+  const groups = ['mineByLength', 'mineByStyle', 'mineByTag'];
+  if (!ch || !Array.isArray(ch.videos)) {
+    $('mineTiles').replaceChildren();
+    groups.forEach(id => $(id).replaceChildren());
+    $('mineList').replaceChildren(el('p', { class: 'empty' }, 'Type your @handle and tap Load my Shorts. It uses your API key and only a few quota units.'));
+    return;
+  }
+  const studio = saved.studio();
+  const a = analyzeMine(ch, studio && studio.byId, saved.tags(), Date.now());
+  if (!a.total) {
+    $('mineTiles').replaceChildren(tile('Shorts posted', '0', ch.title));
+    groups.forEach(id => $(id).replaceChildren());
+    $('mineList').replaceChildren(el('p', { class: 'empty' }, 'No public Shorts found on ' + ch.title + ' yet. Post a few and load again.'));
+    return;
+  }
+  const best = a.rows.reduce((x, y) => y.views > x.views ? y : x);
+  const hits = a.rows.filter(r => !r.young && r.multiple >= 2).length;
+  $('mineTiles').replaceChildren(
+    tile('Subscribers', num(ch.subs), ch.title),
+    tile('Shorts posted', String(a.total), a.recent + ' in the last 30 days'),
+    tile('Your normal', num(a.normal), 'median views per Short'),
+    tile('Beat normal 2×+', String(hits), 'Shorts at least 7 days old'),
+    tile('Last upload', ago(a.last), a.last > 3 ? 'Posting often helps you learn faster' : 'Keep it going'),
+    tile('Best Short', num(best.views), best.title.slice(0, 40)));
+  const withStay = !!(studio && studio.columns.includes('stay'));
+  $('mineByLength').replaceChildren(groupTable('Length', a.byLength, withStay));
+  $('mineByStyle').replaceChildren(groupTable('Title style', a.byStyle, false));
+  $('mineByTag').replaceChildren(a.byTag.length ? groupTable('Hook you tagged', a.byTag, withStay)
+    : el('p', { class: 'hint' }, 'Tag the hook on your Shorts below to see which hooks work best for you.'));
+  const sorters = { newest: (x, y) => x.ageDays - y.ageDays, multiple: (x, y) => y.multiple - x.multiple, views: (x, y) => y.views - x.views,
+    stay: (x, y) => ((y.studio && y.studio.stay) ?? -1) - ((x.studio && x.studio.stay) ?? -1) };
+  const filter = $('mineTagFilter').value;
+  const rows = a.rows.filter(r => !filter || (filter === 'untagged' ? !r.tag.hook : r.tag.hook === filter)).sort(sorters[$('mineSort').value] || sorters.newest);
+  $('mineList').replaceChildren(...(rows.length ? rows.map(mineRow) : [el('p', { class: 'empty' }, 'No Shorts match.')]));
+}
+async function onMine(ev) {
+  ev.preventDefault();
+  const key = $('key').value.trim(), raw = $('mineHandle').value.trim();
+  if (!key) { showErrors('Paste your YouTube API key first. The steps are under "YouTube API key" at the top.', [], 'mineErrors'); $('keybox').open = true; $('key').focus(); return; }
+  const input = parseChannelInput(raw);
+  if (!input || input.type === 'bad') { showErrors('Type your @handle, a youtube.com/@name link or your UC channel ID.', [], 'mineErrors'); $('mineHandle').focus(); return; }
+  store.set('nox.key', key);
+  store.set('nox.mineHandle', raw);
+  showErrors(null, [], 'mineErrors');
+  $('mineGo').disabled = true;
+  $('mineProgress').textContent = 'Loading your Shorts…';
+  const client = makeClient(key, (...x) => fetch(...x));
+  try {
+    const ch = await fetchChannel(client, input, 500);
+    state.mine = { ...ch, loadedAt: Date.now() };
+    store.set('nox.mine', JSON.stringify(state.mine));
+    $('mineProgress').textContent = 'Loaded ' + ch.videos.length + ' videos using ' + client.units + ' quota units.';
+    renderMine();
+  } catch (e) {
+    showErrors(e.fatal ? e.message : 'Couldn\'t load that channel: ' + e.message, [], 'mineErrors');
+    $('mineProgress').textContent = '';
+  }
+  $('mineGo').disabled = false;
+}
+function readFile(input) { return input.files && input.files[0] ? input.files[0].text() : Promise.resolve(null); }
+async function onStudio() {
+  const text = await readFile($('studioFile'));
+  if (text === null) return;
+  try {
+    const r = parseStudio(text);
+    store.set('nox.studio', JSON.stringify({ ...r, added: new Date().toISOString().slice(0, 10) }));
+    const names = { stay: 'stayed to watch', apv: 'percentage viewed', avd: 'view duration', subs: 'subscribers' };
+    $('studioNote').textContent = 'Added data for ' + Object.keys(r.byId).length + ' videos: ' + (r.columns.map(c => names[c]).join(', ') || 'no extra columns found') + '.';
+    renderMine();
+  } catch (e) { $('studioNote').textContent = e.message; }
+  $('studioFile').value = '';
+}
+function onBackupSave() {
+  const data = { app: 'noxi', version: 1, ideas: saved.ideas(), tags: saved.tags(), studio: saved.studio(), mineHandle: store.get('nox.mineHandle') || '' };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+  const a = el('a', { href: url, download: 'noxi-backup-' + new Date().toISOString().slice(0, 10) + '.json' });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  $('backupNote').textContent = 'Backup downloaded.';
+}
+async function onBackupLoad() {
+  const text = await readFile($('backupLoad'));
+  if (text === null) return;
+  try {
+    const d = JSON.parse(text);
+    if (!d || d.app !== 'noxi') throw new Error('bad');
+    const ideas = saved.ideas(), have = new Set(ideas.map(i => i.id));
+    setIdeas([...ideas, ...(Array.isArray(d.ideas) ? d.ideas.filter(i => i && typeof i.text === 'string' && !have.has(i.id)) : [])]);
+    if (d.tags && typeof d.tags === 'object') store.set('nox.tags', JSON.stringify({ ...d.tags, ...saved.tags() }));
+    if (d.studio && d.studio.byId && !saved.studio()) store.set('nox.studio', JSON.stringify(d.studio));
+    if (d.mineHandle && !$('mineHandle').value) { $('mineHandle').value = d.mineHandle; store.set('nox.mineHandle', d.mineHandle); }
+    $('backupNote').textContent = 'Backup restored. Anything already on this device was kept.';
+    renderMine(); renderIdeas();
+  } catch (e) { $('backupNote').textContent = 'That isn\'t a Noxi backup file.'; }
+  $('backupLoad').value = '';
+}
+
+const TABS = { mine: ['tabMine', 'viewMine'], ideas: ['tabIdeas', 'viewIdeas'], db: ['tabDb', 'viewDb'], quiet: ['tabQuiet', 'viewQuiet'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
 function setTab(name) {
   if (!TABS[name]) name = 'db';
   for (const [k, [tab, view]] of Object.entries(TABS)) {
@@ -1187,6 +1550,8 @@ function setTab(name) {
   }
   if (name === 'niche') renderNiche();
   if (name === 'quiet') renderQuiet();
+  if (name === 'mine') renderMine();
+  if (name === 'ideas') renderIdeas();
   store.set('nox.tab', name);
 }
 function syncKeyBox() {
@@ -1243,6 +1608,19 @@ function boot() {
   ['dbAge', 'dbMinViews', 'dbSubs', 'dbCountry', 'dbSort'].forEach(id => $(id).addEventListener('change', renderDb));
   $('dbSearch').addEventListener('input', renderDb);
   $('tabQuiet').addEventListener('click', () => setTab('quiet'));
+  $('tabMine').addEventListener('click', () => setTab('mine'));
+  $('tabIdeas').addEventListener('click', () => setTab('ideas'));
+  state.mine = loadJson('nox.mine', null);
+  $('mineHandle').value = store.get('nox.mineHandle') || '';
+  $('mineForm').addEventListener('submit', onMine);
+  ['mineSort', 'mineTagFilter'].forEach(id => $(id).addEventListener('change', renderMine));
+  $('mineTagFilter').append(...HOOKS.map(h => el('option', { value: h }, 'Hook: ' + h)));
+  $('studioFile').addEventListener('change', onStudio);
+  $('backupSave').addEventListener('click', onBackupSave);
+  $('backupLoad').addEventListener('change', onBackupLoad);
+  $('backupPick').addEventListener('click', () => $('backupLoad').click());
+  $('ideaForm').addEventListener('submit', ev => { ev.preventDefault(); const t = $('ideaText').value.trim(); if (!t) return; addIdea(t); $('ideaText').value = ''; renderIdeas(); });
+  $('ideaShow').addEventListener('change', renderIdeas);
   ['quietIdle', 'quietPace', 'quietMinViews', 'quietSort'].forEach(id => $(id).addEventListener('change', renderQuiet));
   $('quietSearch').addEventListener('input', renderQuiet);
   try { const n = JSON.parse(store.get('nox.niche') || 'null'); if (n && Array.isArray(n.niches)) state.niche = n; } catch (e) { /* start without saved results */ }
