@@ -11,6 +11,7 @@ const KEEP_SNAPSHOTS = 35;
 const TOP_SHORTS = 3;
 const WINDOWS = [30, 90, 365];
 const SITE = 'https://xplanxplanet.github.io/';
+const UPLOAD_WORKERS = 8;
 
 export function parseDuration(iso) {
   const m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso || '');
@@ -84,9 +85,30 @@ export async function collect({ existing, config, key, fetcher, now = Date.now()
       const subs = c.statistics.hiddenSubscriberCount ? null : +c.statistics.subscriberCount;
       const h = [...(old?.h || []).filter(s => s[0] !== today), [today, views, subs]].slice(-KEEP_SNAPSHOTS);
       next.set(c.id, { id: c.id, title: c.snippet.title, handle: c.snippet.customUrl || '', country: c.snippet.country || '', createdAt: c.snippet.publishedAt,
-        firstSeen: old?.firstSeen || new Date(now).toISOString().slice(0, 10), subs, views, videoCount, h, g7: pace(h, 7), g30: pace(h, 30), top: old?.top || [] });
+        firstSeen: old?.firstSeen || new Date(now).toISOString().slice(0, 10), subs, views, videoCount, h, g7: pace(h, 7), g30: pace(h, 30), top: old?.top || [],
+        lastUpload: old?.lastUpload || null });
     }
   }
+
+  // The newest upload shows whether a channel has gone quiet. It costs 1 quota unit per channel.
+  const queue = [...next.values()];
+  let uploadsStopped = null;
+  const lookUp = async () => {
+    while (queue.length && !uploadsStopped) {
+      const c = queue.shift();
+      try {
+        const page = await api.call('playlistItems', { part: 'contentDetails', playlistId: 'UU' + c.id.slice(2), maxResults: 1 });
+        const at = page.items?.[0]?.contentDetails?.videoPublishedAt;
+        if (at) c.lastUpload = at;
+      } catch (e) {
+        // A private or missing uploads list only skips that channel; a quota or key problem stops the lookups.
+        if (e instanceof QuotaOrKeyError && /quota|LimitExceeded|API.?key|keyInvalid|accessNotConfigured|Blocked/i.test(e.message)) uploadsStopped = e.message;
+        else log('Skipped last upload for ' + c.id + ': ' + e.message);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: UPLOAD_WORKERS }, lookUp));
+  if (uploadsStopped) log('Last-upload lookups stopped early: ' + uploadsStopped);
 
   const videoIds = new Set(foundVideos);
   next.forEach(c => c.top.forEach(v => videoIds.add(v.id)));

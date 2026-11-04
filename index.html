@@ -153,6 +153,7 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
   </details>
   <div class="tabs" role="tablist">
     <button type="button" role="tab" id="tabDb" aria-controls="viewDb">Database</button>
+    <button type="button" role="tab" id="tabQuiet" aria-controls="viewQuiet">Quiet channels</button>
     <button type="button" role="tab" id="tabNiche" aria-controls="viewNiche">Niche finder</button>
     <button type="button" role="tab" id="tabNew" aria-controls="viewNew">New channels</button>
     <button type="button" role="tab" id="tabOut" aria-controls="viewOut">Outlier videos</button>
@@ -185,6 +186,27 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     <h2>Channels</h2>
     <div class="list" id="dbList"></div>
     <p class="hint">Views per day uses the last 7 days once there are two daily snapshots. Until then it's the average since the channel was created. Tap a channel to check its style, because some reuse other people's clips.</p>
+  </section>
+</div>
+
+<div class="wrap dbview" id="viewQuiet" role="tabpanel">
+  <section class="filters" aria-label="Quiet channel filters">
+    <div class="field"><label for="quietIdle">No uploads for at least</label>
+      <select id="quietIdle"><option value="14">2 weeks</option><option value="30" selected>1 month</option><option value="60">2 months</option><option value="90">3 months</option><option value="180">6 months</option></select></div>
+    <div class="field"><label for="quietPace">Still getting</label>
+      <select id="quietPace"><option value="0" selected>Any views</option><option value="1000">1,000+ views/day</option><option value="10000">10,000+ views/day</option><option value="100000">100,000+ views/day</option></select></div>
+    <div class="field"><label for="quietMinViews">Total channel views</label>
+      <select id="quietMinViews"><option value="0">Any</option><option value="100000" selected>100,000+</option><option value="1000000">1 million+</option><option value="10000000">10 million+</option></select></div>
+    <div class="field"><label for="quietSort">Sort by</label>
+      <select id="quietSort"><option value="pace" selected>Views per day</option><option value="views">Total views</option><option value="perVideo">Views per video</option><option value="idle">Quiet the longest</option></select></div>
+    <div class="field"><label for="quietSearch">Search</label>
+      <input id="quietSearch" type="search" placeholder="Channel or Short title" autocomplete="off"></div>
+  </section>
+  <p id="quietSummary" class="dbsummary"></p>
+  <section class="insight">
+    <h2>Channels that stopped uploading</h2>
+    <div class="list" id="quietList"></div>
+    <p class="hint">These channels stopped posting but may still get views, so their format could be worth trying. Views per day appears once a channel has two daily snapshots; until then it says "Not measured yet". Only channels in the database are included, so these are under 2 years old. Copy the format and topic, never the videos themselves.</p>
   </section>
 </div>
 
@@ -677,6 +699,20 @@ function rankDatabase(channels, f, now) {
     found: (a, b) => (b.firstSeen || '').localeCompare(a.firstSeen || '') || b.pace - a.pace };
   return list.sort(sorters[f.sort] || sorters.pace);
 }
+/* Channels whose newest upload is at least `minIdle` days old. Views per day only counts when measured from snapshots. */
+function rankQuiet(channels, f, now) {
+  const needle = f.search.trim().toLowerCase();
+  const list = channels.filter(c => c.lastUpload).map(c => ({ ...c,
+    ageDays: Math.max((now - Date.parse(c.createdAt)) / DAY, 1),
+    idleDays: (now - Date.parse(c.lastUpload)) / DAY,
+    measured: c.g7 !== null && c.g7 !== undefined, pace: c.g7 ?? null,
+    perVideo: c.views / Math.max(c.videoCount, 1) }))
+  .filter(c => c.idleDays >= f.minIdle && c.views >= f.minViews && (f.minPace === 0 || (c.measured && c.pace >= f.minPace)) &&
+    (!needle || c.title.toLowerCase().includes(needle) || c.top.some(v => v.title.toLowerCase().includes(needle))));
+  const sorters = { pace: (a, b) => (b.pace ?? -1) - (a.pace ?? -1) || b.views - a.views, views: (a, b) => b.views - a.views,
+    perVideo: (a, b) => b.perVideo - a.perVideo, idle: (a, b) => b.idleDays - a.idleDays };
+  return list.sort(sorters[f.sort] || sorters.pace);
+}
 /* Total views over time, scaled to its own range. Needs 3 snapshots to show a shape. */
 function sparkPoints(h, w = 96, height = 28, pad = 3) {
   if (!h || h.length < 3) return null;
@@ -947,6 +983,47 @@ function dbRow(c, inScan) {
       sparkline(c)),
     el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
 }
+function quietRow(c, inScan) {
+  const v = c.top[0];
+  const thumb = el('img', { className: 'thumb', src: 'https://i.ytimg.com/vi/' + encodeURIComponent(v.id) + '/mqdefault.jpg', alt: '', loading: 'lazy' });
+  const add = el('button', { type: 'button', className: 'add', disabled: inScan }, inScan ? 'Added' : 'Add to scan');
+  add.addEventListener('click', () => { addToScan(channelRef(c)); add.textContent = 'Added'; add.disabled = true; });
+  const link = 'https://www.youtube.com/' + (c.handle ? channelRef(c) : 'channel/' + encodeURIComponent(c.id));
+  const chips = [el('span', { class: 'chip' }, 'Last upload ' + ago(c.idleDays))];
+  if (c.country) chips.push(el('span', { class: 'chip' }, c.country));
+  return el('article', { class: 'video' },
+    el('div', { class: 'mult', title: c.measured ? 'Channel views per day over the last 7 days' : 'Needs two daily snapshots' },
+      c.measured ? num(c.pace) : '?', el('small', {}, c.measured ? 'views/day' : 'Not measured yet')),
+    thumb,
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, el('a', { href: link, target: '_blank', rel: 'noopener' }, c.title)),
+      el('p', { class: 'vmeta' }, num(c.subs) + ' subs · ' + c.videoCount.toLocaleString('en') + ' videos · created ' + ago(c.ageDays)),
+      el('p', { class: 'vmeta' }, 'Top Short: ', el('a', { href: 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id), target: '_blank', rel: 'noopener' }, v.title), ' (' + num(v.views) + ')'),
+      el('div', { class: 'chips' }, chips),
+      sparkline(c)),
+    el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add));
+}
+function renderQuiet() {
+  const d = state.db;
+  if (!d || !d.channels.length) {
+    $('quietSummary').textContent = state.dbFailed ? 'The database isn\'t ready yet.' : 'Loading the database…';
+    $('quietList').replaceChildren();
+    return;
+  }
+  if (!d.channels.some(c => c.lastUpload)) {
+    $('quietSummary').textContent = 'Last upload dates appear after the next daily collection.';
+    $('quietList').replaceChildren();
+    return;
+  }
+  const f = { minIdle: +$('quietIdle').value, minPace: +$('quietPace').value, minViews: +$('quietMinViews').value, sort: $('quietSort').value, search: $('quietSearch').value };
+  const list = rankQuiet(d.channels, f, Date.now());
+  const inScan = new Set($('channels').value.split('\n').map(l => l.trim().toLowerCase()));
+  const measured = list.filter(c => c.measured).length;
+  $('quietSummary').textContent = list.length.toLocaleString('en') + ' of ' + d.channels.length.toLocaleString('en') + ' tracked channels match, ' + measured.toLocaleString('en') + ' with measured views per day.';
+  $('quietList').replaceChildren(...(list.length
+    ? list.slice(0, 100).map(c => quietRow(c, inScan.has(channelRef(c).toLowerCase())))
+    : [el('p', { class: 'empty' }, 'No quiet channels match. Try a shorter quiet period or lower the views filters.')]));
+}
 function renderDb() {
   const d = state.db;
   if (!d || !d.channels.length) {
@@ -980,12 +1057,14 @@ async function loadDb() {
       const countries = [...new Set(d.channels.map(c => c.country).filter(Boolean))].sort();
       $('dbCountry').append(...countries.map(c => el('option', { value: c }, c)));
       renderDb();
+      renderQuiet();
       return;
     } catch (e) { /* try the next location */ }
   }
   state.dbFailed = true;
   showErrors('The database isn\'t ready yet. It appears after the first daily collection runs.', [], 'dbErrors');
   renderDb();
+  renderQuiet();
 }
 function renderNiche() {
   const d = state.niche;
@@ -1099,7 +1178,7 @@ async function onDiscover(ev) {
     renderNew();
   }
 }
-const TABS = { db: ['tabDb', 'viewDb'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
+const TABS = { db: ['tabDb', 'viewDb'], quiet: ['tabQuiet', 'viewQuiet'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
 function setTab(name) {
   if (!TABS[name]) name = 'db';
   for (const [k, [tab, view]] of Object.entries(TABS)) {
@@ -1107,6 +1186,7 @@ function setTab(name) {
     $(tab).setAttribute('aria-selected', String(k === name));
   }
   if (name === 'niche') renderNiche();
+  if (name === 'quiet') renderQuiet();
   store.set('nox.tab', name);
 }
 function syncKeyBox() {
@@ -1162,6 +1242,9 @@ function boot() {
   $('tabDb').addEventListener('click', () => { setTab('db'); renderDb(); });
   ['dbAge', 'dbMinViews', 'dbSubs', 'dbCountry', 'dbSort'].forEach(id => $(id).addEventListener('change', renderDb));
   $('dbSearch').addEventListener('input', renderDb);
+  $('tabQuiet').addEventListener('click', () => setTab('quiet'));
+  ['quietIdle', 'quietPace', 'quietMinViews', 'quietSort'].forEach(id => $(id).addEventListener('change', renderQuiet));
+  $('quietSearch').addEventListener('input', renderQuiet);
   try { const n = JSON.parse(store.get('nox.niche') || 'null'); if (n && Array.isArray(n.niches)) state.niche = n; } catch (e) { /* start without saved results */ }
   const savedNiches = store.get('nox.niches');
   if (savedNiches) $('nicheList').value = savedNiches;
