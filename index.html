@@ -209,9 +209,9 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 
 <div class="wrap newview" id="viewMine" role="tabpanel">
   <form class="rail" id="mineForm" novalidate>
-    <h2>Your channel</h2>
+    <h2>Check a channel</h2>
     <div class="field">
-      <label for="mineHandle">Your @handle or channel link</label>
+      <label for="mineHandle">Your @handle, or any channel's link</label>
       <input id="mineHandle" type="text" autocomplete="off" spellcheck="false" placeholder="@yourchannel">
     </div>
     <button class="primary" id="mineGo" type="submit">Load my Shorts</button>
@@ -240,13 +240,19 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     <div class="notice bad" id="mineErrors" role="alert" hidden></div>
     <div class="tiles" id="mineTiles"></div>
     <section class="insight">
-      <h2>What works on your channel</h2>
+      <h2>What works on this channel</h2>
       <p class="hint">Each group's typical Short compared with your normal views. Groups with fewer than 3 Shorts are marked, because a couple of videos can be luck.</p>
       <div class="insights">
         <div class="scroll" id="mineByLength"></div>
         <div class="scroll" id="mineByStyle"></div>
       </div>
       <div class="scroll" id="mineByTag"></div>
+    </section>
+    <section class="insight">
+      <div class="stats"><h2>Ideas from this channel</h2><button type="button" id="mineCopyPrompt">Copy prompt for ChatGPT</button></div>
+      <p class="hint">Each idea takes a title format that beat this channel's normal and fills it with a subject that already went viral on another channel in your database. Make your own version, never a copy.</p>
+      <p class="hint" id="minePromptNote" role="status"></p>
+      <div class="list" id="mineIdeas"></div>
     </section>
     <section class="filters" aria-label="Your Shorts filters">
       <div class="field"><label for="mineSort">Sort by</label>
@@ -791,6 +797,124 @@ function analyzeMine(channel, studio, tags, now) {
   return { rows, normal, byLength, byStyle, byTag, last, recent, total: shorts.length, matureCount: mature.length };
 }
 
+/* ---------- Idea generator ---------- */
+/* Title formats with a blank. `re` captures the subject; `make` puts a new subject back in. */
+const FORMATS = [
+  { id: 'whathappens', label: 'What happens if…', q: true, re: /^what (?:happens|would happen) (?:if|when|to|inside)\s+.{4,70}$/i },
+  { id: 'whatif', label: 'What if…', q: true, re: /^what if\s+.{4,70}$/i },
+  { id: 'inside', label: 'What\'s inside…', q: true, re: /^(?:what's|what is) inside\s+.{3,60}$/i },
+  { id: 'survive', label: 'Could you survive…', q: true, re: /^(?:could|would|can) you survive\s+.{3,60}$/i },
+  { id: 'why', label: 'Why…?', q: true, re: /^why (?:do|does|did|is|are|was|were|can't|cant|don't|dont|doesn't|would|should)\s+.{4,70}$/i },
+  { id: 'how', label: 'How…', q: false, re: /^how (?:do|does|did|is|are|was|to|much|many|long|deep|big|fast|far|old)\s+.{4,70}$/i },
+  { id: 'facts', label: 'N facts about…', q: false, re: /^\d{1,2} (?:\w+ )?(?:facts|things)\b.{3,60}$/i },
+  { id: 'vs', label: 'X vs Y', q: false, re: /^.{3,40}?\s+vs\.?\s+.{3,40}$/i },
+];
+const MIN_PROVEN_VIEWS = 100000;
+/* The readable core of a title: no hashtags, emoji or "| channel" tails. */
+function coreTitle(title) {
+  let t = cleanTitle(title).replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\uFE0F\u200D]/gu, '');
+  t = t.split(/\s[|•–—]\s|\s-\s|\||[?!]\s/)[0].replace(/\s*[([{][^)\]}]*[)\]}]/g, '');
+  return t.replace(/\s+/g, ' ').replace(/[\s?!.:,;]+$/, '').trim();
+}
+function matchFormat(title) {
+  const t = coreTitle(title);
+  const f = FORMATS.find(x => x.re.test(t));
+  return f ? { format: f, core: t } : null;
+}
+const titleKey = t => t.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
+const ideaTitle = v => v.core + (v.fm && v.fm.format.q ? '?' : '');
+/* Words that say little about the topic, so they don't count as a topic match. */
+const GENERIC = new Set(('fact weird thing crazy amazing strange shocking fun real truth secret hidden explained explain animation animated ' +
+  'people person world day time life year minute second inside happen your yourself everyone nobody body part').split(' '));
+const singleTerms = title => [...terms(title).keys()].filter(k => !k.includes(' ') && !GENERIC.has(k));
+const isLatin = t => !/[^\p{Script=Latin}\p{Script=Common}\p{M}]/u.test(t);
+/*
+ * Ideas for a channel from its own best Shorts (rows from analyzeMine) and a pool of Shorts from other channels
+ * ({ title, views, channel, id }). Returns up to `max` ideas, strongest evidence first.
+ */
+function generateIdeas(rows, pool, max = 12, min = 10) {
+  const scored = rows.filter(r => !r.young);
+  const base = scored.length >= MIN_GROUP ? scored : rows;
+  const winners = [...base].sort((a, b) => b.multiple - a.multiple || b.views - a.views).filter((r, i) => i < 3 || r.multiple >= 1.5).slice(0, 8);
+  const used = new Set(rows.map(r => titleKey(coreTitle(r.title))));
+  // Words this channel uses, so ideas lean towards its own topics.
+  const vocab = new Set(rows.flatMap(r => singleTerms(r.title)));
+  // Only suggest titles in the same alphabet as this channel's own titles.
+  const latin = rows.filter(r => isLatin(coreTitle(r.title))).length * 2 >= rows.length;
+  const parsedPool = pool.filter(v => v.views >= MIN_PROVEN_VIEWS && isLatin(coreTitle(v.title)) === latin).map(v => {
+    const core = coreTitle(v.title);
+    return { ...v, core, fm: matchFormat(v.title), rel: singleTerms(v.title).filter(k => vocab.has(k)).length };
+  }).filter(v => v.core.length >= 8 && !used.has(titleKey(v.core)))
+    .sort((a, b) => Math.min(b.rel, 2) - Math.min(a.rel, 2) || b.views - a.views);
+  const ideas = [], seen = new Set();
+  const fresh = v => !seen.has(titleKey(ideaTitle(v)));
+  const push = idea => {
+    const k = titleKey(idea.title);
+    if (seen.has(k) || used.has(k)) return false;
+    seen.add(k); ideas.push(idea); return true;
+  };
+  const formatIdea = (w, fm, cand) => ({ title: ideaTitle(cand), kind: 'Format that works here', source: cand,
+    why: '"' + coreTitle(w.title) + '" got ' + mult(w.multiple) + ' this channel\'s normal with the "' + fm.format.label + '" format. "' + cand.core + '" got ' + num(cand.views) + ' views on ' + cand.channel + '.' });
+  const perWinner = winners.map(w => ({ w, fm: matchFormat(w.title) })).filter(x => x.fm);
+  // 1. A format that beat this channel's normal, as an on-topic title that went viral elsewhere. Up to 3 per winner.
+  for (let pass = 0; pass < 3 && ideas.length < max; pass++) {
+    for (const { w, fm } of perWinner) {
+      if (ideas.length >= max) break;
+      const cand = parsedPool.find(v => v.rel > 0 && v.fm && v.fm.format.id === fm.format.id && fresh(v));
+      if (cand) push(formatIdea(w, fm, cand));
+    }
+  }
+  // 2. The topic of a winning Short, told the way another channel's hit told it.
+  for (const w of winners) {
+    if (ideas.length >= max) break;
+    const keys = singleTerms(w.title);
+    const cand = parsedPool.find(v => keys.some(k => terms(v.title).has(k)) && fresh(v));
+    if (!cand) continue;
+    const shared = keys.find(k => terms(cand.title).has(k));
+    push({ title: ideaTitle(cand), kind: 'Same topic, proven angle', source: cand,
+      why: 'This channel\'s "' + coreTitle(w.title) + '" did ' + mult(w.multiple) + ' its normal, so "' + (terms(w.title).get(shared) || shared) + '" works here. "' + cand.core + '" got ' + num(cand.views) + ' views on ' + cand.channel + '.' });
+  }
+  // 3. Follow-ups to the two biggest winners, so viewers who liked them get more.
+  for (const w of winners.slice(0, 2)) {
+    if (ideas.length >= max) break;
+    push({ title: 'Part 2: ' + coreTitle(w.title), kind: 'Follow-up', source: null, own: w,
+      why: 'It got ' + mult(w.multiple) + ' this channel\'s normal. A follow-up with a new example often brings the same viewers back.' });
+  }
+  // 4. Still short of `min`: winning formats with big hits on other topics, marked as such.
+  for (let pass = 0; pass < 3 && ideas.length < min; pass++) {
+    for (const { w, fm } of perWinner) {
+      if (ideas.length >= min) break;
+      const cand = parsedPool.find(v => v.fm && v.fm.format.id === fm.format.id && fresh(v));
+      if (cand) push({ ...formatIdea(w, fm, cand), kind: 'Format that works here · different topic' });
+    }
+  }
+  return ideas;
+}
+/* A prompt with the channel's real numbers, to paste into a free AI chat. */
+function ideaPrompt(ch, a) {
+  const mature = a.rows.filter(r => !r.young);
+  const best = [...mature].sort((x, y) => y.multiple - x.multiple).slice(0, 10);
+  const worst = [...mature].sort((x, y) => x.multiple - y.multiple).slice(0, 5);
+  const line = r => '- "' + coreTitle(r.title) + '": ' + r.views.toLocaleString('en') + ' views, ' + r.multiple.toFixed(1) + 'x normal, ' + r.seconds + ' s' +
+    (r.studio && r.studio.stay !== null ? ', ' + Math.round(r.studio.stay) + '% stayed to watch' : '');
+  const lengths = a.byLength.map(g => g.name + ': ' + g.typical.toFixed(1) + 'x (' + g.count + ' Shorts)').join('; ');
+  return [
+    'You are a YouTube Shorts strategist. Using the real data below from the channel "' + ch.title + '", give me 10 original Short ideas that are most likely to go viral for a channel like this.',
+    '',
+    'Channel: ' + ch.title + ' (' + (ch.subs === null ? 'hidden' : ch.subs.toLocaleString('en')) + ' subscribers, ' + a.total + ' Shorts). Normal views per Short: ' + Math.round(a.normal).toLocaleString('en') + '.',
+    '',
+    'Best Shorts compared with the channel\'s normal:', ...best.map(line),
+    '',
+    'Weakest Shorts:', ...worst.map(line),
+    '',
+    'Results by length: ' + (lengths || 'not enough data') + '.',
+    '',
+    'First, in 3 short bullet points, explain what the best Shorts have in common (topic, title format, hook, length) and what the weakest ones did wrong.',
+    'Then give 10 ideas. For each one give: a title, the first sentence spoken in the first 2 seconds (the hook), a 3-step outline (hook, build-up, payoff), the ideal length in seconds, and one sentence on why it should work based on the data above.',
+    'Rules: use the patterns that worked, never copy an existing video, keep every fact accurate and say if something needs checking, and make the ideas easy to make as animated or faceless Shorts.',
+  ].join('\n');
+}
+
 /* ---------- New channel discovery ---------- */
 const MIN_NEW_VIDEOS = 3;
 function chunks(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
@@ -1245,6 +1369,7 @@ async function loadDb() {
       $('dbCountry').append(...countries.map(c => el('option', { value: c }, c)));
       renderDb();
       renderQuiet();
+      renderMine();
       return;
     } catch (e) { /* try the next location */ }
   }
@@ -1442,12 +1567,29 @@ function mineRow(r) {
       el('div', { class: 'tagrow' }, hook, note)),
     el('div', { class: 'nums' }, el('strong', {}, num(r.views) + ' views'), el('span', {}, num(r.perDay) + '/day')));
 }
+function ideaPool(excludeId) {
+  const pool = [];
+  ((state.db && state.db.channels) || []).forEach(c => c.id !== excludeId && c.top.forEach(v => pool.push({ id: v.id, title: v.title, views: v.views, channel: c.title })));
+  (state.channels || []).forEach(c => c.id !== excludeId && !state.sample && c.videos.forEach(v => videoFormat(v) === 'short' && pool.push({ id: v.id, title: v.title, views: v.views, channel: c.title })));
+  return [...new Map(pool.map(v => [v.id, v])).values()];
+}
+function ideaRow(i) {
+  const link = i.source ? 'https://www.youtube.com/watch?v=' + encodeURIComponent(i.source.id) : 'https://www.youtube.com/watch?v=' + encodeURIComponent(i.own.id);
+  return el('article', { class: 'idea' },
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, i.title),
+      el('p', { class: 'vmeta' }, i.why + ' ', el('a', { href: link, target: '_blank', rel: 'noopener' }, i.source ? 'Watch the example' : 'Watch the original')),
+      el('div', { class: 'chips' }, el('span', { class: 'chip' }, i.kind), i.source && i.source.rel > 0 ? el('span', { class: 'chip' }, 'Matches this channel\'s topics') : '')),
+    el('div', { class: 'acts' }, saveIdeaButton(i.title, link, i.source ? i.source.channel : (state.mine && state.mine.title))));
+}
 function renderMine() {
   const ch = state.mine;
   const groups = ['mineByLength', 'mineByStyle', 'mineByTag'];
   if (!ch || !Array.isArray(ch.videos)) {
     $('mineTiles').replaceChildren();
     groups.forEach(id => $(id).replaceChildren());
+    state.mineAnalysis = null;
+    $('mineIdeas').replaceChildren(el('p', { class: 'empty' }, 'Load a channel to get ideas.'));
     $('mineList').replaceChildren(el('p', { class: 'empty' }, 'Type your @handle and tap Load my Shorts. It uses your API key and only a few quota units.'));
     return;
   }
@@ -1456,6 +1598,8 @@ function renderMine() {
   if (!a.total) {
     $('mineTiles').replaceChildren(tile('Shorts posted', '0', ch.title));
     groups.forEach(id => $(id).replaceChildren());
+    state.mineAnalysis = null;
+    $('mineIdeas').replaceChildren();
     $('mineList').replaceChildren(el('p', { class: 'empty' }, 'No public Shorts found on ' + ch.title + ' yet. Post a few and load again.'));
     return;
   }
@@ -1468,6 +1612,10 @@ function renderMine() {
     tile('Beat normal 2×+', String(hits), 'Shorts at least 7 days old'),
     tile('Last upload', ago(a.last), a.last > 3 ? 'Posting often helps you learn faster' : 'Keep it going'),
     tile('Best Short', num(best.views), best.title.slice(0, 40)));
+  state.mineAnalysis = a;
+  const ideas = generateIdeas(a.rows, ideaPool(ch.id));
+  $('mineIdeas').replaceChildren(...(ideas.length ? ideas.map(ideaRow)
+    : [el('p', { class: 'empty' }, state.db ? 'No ideas yet. This channel needs a few Shorts that are at least a week old.' : 'Loading the database for ideas…')]));
   const withStay = !!(studio && studio.columns.includes('stay'));
   $('mineByLength').replaceChildren(groupTable('Length', a.byLength, withStay));
   $('mineByStyle').replaceChildren(groupTable('Title style', a.byStyle, false));
@@ -1613,6 +1761,17 @@ function boot() {
   state.mine = loadJson('nox.mine', null);
   $('mineHandle').value = store.get('nox.mineHandle') || '';
   $('mineForm').addEventListener('submit', onMine);
+  $('mineCopyPrompt').addEventListener('click', async () => {
+    if (!state.mine || !state.mineAnalysis) { $('minePromptNote').textContent = 'Load a channel first.'; return; }
+    const text = ideaPrompt(state.mine, state.mineAnalysis);
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { ok = false; }
+    $('minePromptNote').replaceChildren(ok ? 'Copied. Paste it into ' : 'Your browser blocked copying. Select the text below and copy it, then paste it into ',
+      el('a', { href: 'https://chatgpt.com/', target: '_blank', rel: 'noopener' }, 'ChatGPT'), ', ',
+      el('a', { href: 'https://claude.ai/new', target: '_blank', rel: 'noopener' }, 'Claude'), ' or ',
+      el('a', { href: 'https://gemini.google.com/', target: '_blank', rel: 'noopener' }, 'Gemini'), ' (all free).',
+      ok ? '' : el('textarea', { readOnly: true, value: text, style: 'margin-top:8px' }));
+  });
   ['mineSort', 'mineTagFilter'].forEach(id => $(id).addEventListener('change', renderMine));
   $('mineTagFilter').append(...HOOKS.map(h => el('option', { value: h }, 'Hook: ' + h)));
   $('studioFile').addEventListener('change', onStudio);
