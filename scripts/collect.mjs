@@ -138,6 +138,68 @@ export async function collect({ existing, config, key, fetcher, now = Date.now()
   };
 }
 
+/* ---------- Watchlist: hand-picked channels, their latest uploads, and each video's views every day ---------- */
+const WATCH_UPLOADS = 50;       // uploads read per channel (the normal is the median of these)
+const WATCH_KEEP = 30;          // newest uploads kept per channel in watch.json
+const WATCH_HISTORY_DAYS = 60;  // daily view snapshots are kept for videos younger than this
+const WATCH_SNAPSHOTS = 21;
+const MATURE_DAYS = 7;
+
+const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+export async function collectWatch({ list, existing, key, fetcher, now = Date.now(), log = () => {} }) {
+  const today = Math.floor(now / DAY);
+  const api = client(key, fetcher);
+  const old = new Map((existing.videos || []).map(v => [v.id, v]));
+  const oldCh = new Map((existing.channels || []).map(c => [c.id, c]));
+  const entries = list.filter(c => /^UC[\w-]{22}$/.test(c.id || ''));
+  const info = new Map();
+  for (const ids of chunks(entries.map(c => c.id), 50)) {
+    const page = await api.call('channels', { part: 'snippet,statistics,contentDetails', id: ids.join(','), maxResults: 50 });
+    for (const c of page.items || []) info.set(c.id, c);
+  }
+  const uploads = new Map();
+  for (const e of entries) {
+    const c = info.get(e.id);
+    if (!c) { log('Watchlist: channel not found ' + e.id); continue; }
+    try {
+      const page = await api.call('playlistItems', { part: 'contentDetails', playlistId: c.contentDetails.relatedPlaylists.uploads, maxResults: WATCH_UPLOADS });
+      uploads.set(e.id, (page.items || []).map(i => i.contentDetails.videoId));
+    } catch (err) {
+      if (err instanceof QuotaOrKeyError && /quota|LimitExceeded|API.?key|keyInvalid|accessNotConfigured|Blocked/i.test(err.message)) throw err;
+      log('Watchlist: no uploads for ' + e.id + ': ' + err.message);
+    }
+  }
+  const details = new Map();
+  for (const ids of chunks([...uploads.values()].flat(), 50)) {
+    const page = await api.call('videos', { part: 'snippet,statistics,contentDetails', id: ids.join(','), maxResults: 50 });
+    for (const v of page.items || []) details.set(v.id, v);
+  }
+  const channels = [], videos = [];
+  for (const e of entries) {
+    const c = info.get(e.id);
+    if (!c) continue;
+    const views = +c.statistics.viewCount, subs = c.statistics.hiddenSubscriberCount ? null : +c.statistics.subscriberCount;
+    const prev = oldCh.get(e.id);
+    const h = [...(prev?.h || []).filter(s => s[0] !== today), [today, views, subs]].slice(-KEEP_SNAPSHOTS);
+    const vids = (uploads.get(e.id) || []).map(id => details.get(id)).filter(v => v && v.statistics?.viewCount !== undefined && v.snippet.liveBroadcastContent === 'none')
+      .map(v => ({ id: v.id, channelId: e.id, title: v.snippet.title, publishedAt: v.snippet.publishedAt, seconds: parseDuration(v.contentDetails?.duration) || 0,
+        views: +v.statistics.viewCount, likes: v.statistics.likeCount === undefined ? null : +v.statistics.likeCount,
+        comments: v.statistics.commentCount === undefined ? null : +v.statistics.commentCount }))
+      .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+    // the channel's normal per format: median views of uploads at least a week old
+    const normalOf = isShort => median(vids.filter(v => (v.seconds <= SHORT_MAX_SECONDS) === isShort && now - Date.parse(v.publishedAt) >= MATURE_DAYS * DAY).map(v => v.views));
+    channels.push({ id: e.id, name: e.name || c.snippet.title, group: e.group || 'Other', title: c.snippet.title, handle: c.snippet.customUrl || '',
+      createdAt: c.snippet.publishedAt, subs, views, videoCount: +c.statistics.videoCount, h, normal: { long: normalOf(false), short: normalOf(true) } });
+    for (const v of vids.slice(0, WATCH_KEEP)) {
+      const young = now - Date.parse(v.publishedAt) <= WATCH_HISTORY_DAYS * DAY;
+      const vh = young ? [...(old.get(v.id)?.h || []).filter(s => s[0] !== today), [today, v.views]].slice(-WATCH_SNAPSHOTS) : [];
+      videos.push({ ...v, h: vh });
+    }
+  }
+  return { updatedAt: new Date(now).toISOString(), units: api.units, channels, videos };
+}
+
 async function main() {
   const key = process.env.YT_API_KEY;
   if (!key) throw new Error('The YT_API_KEY secret is missing. Add it under Settings > Secrets and variables > Actions.');
@@ -146,6 +208,16 @@ async function main() {
   const out = await collect({ existing, config, key, fetcher: fetch, log: m => console.log(m) });
   await writeFile('data/channels.json', JSON.stringify(out));
   console.log(`Saved ${out.channels.length} channels using ${out.searches} searches and ${out.units} API calls.`);
+  // The watchlist runs on its own: if it fails, the database above is still saved.
+  try {
+    const list = JSON.parse(await readFile('data/watchlist.json', 'utf8')).channels || [];
+    const prevWatch = JSON.parse(await readFile('data/watch.json', 'utf8').catch(() => '{}'));
+    const w = await collectWatch({ list, existing: prevWatch, key, fetcher: fetch, log: m => console.log(m) });
+    await writeFile('data/watch.json', JSON.stringify(w));
+    console.log(`Watchlist: ${w.channels.length} channels, ${w.videos.length} videos, ${w.units} API calls.`);
+  } catch (e) {
+    console.log('Watchlist skipped: ' + String(e.message).replaceAll(key, '[key]'));
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {

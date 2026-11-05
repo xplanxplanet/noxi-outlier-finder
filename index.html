@@ -118,6 +118,8 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
 .tile span { color: var(--muted); font-size: .8rem; font-weight: 600; }
 .tile strong { font: 400 1.5rem/1.1 var(--display); font-variant-numeric: tabular-nums; }
 .tile small { color: var(--muted); font-size: .8rem; }
+.insight > details { min-width: 0; }
+.chip.hitchip { background: var(--hit); color: var(--on-hit); border-color: var(--hit); }
 .mult.low { background: var(--line); color: var(--ink); }
 .tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .tagrow select { width: auto; padding: 3px 6px; font-size: .8rem; }
@@ -171,6 +173,7 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
     <button type="button" role="tab" id="tabMine" aria-controls="viewMine">My channel</button>
     <button type="button" role="tab" id="tabIdeas" aria-controls="viewIdeas">Ideas</button>
     <button type="button" role="tab" id="tabDb" aria-controls="viewDb">Database</button>
+    <button type="button" role="tab" id="tabWatch" aria-controls="viewWatch">Watchlist</button>
     <button type="button" role="tab" id="tabQuiet" aria-controls="viewQuiet">Quiet channels</button>
     <button type="button" role="tab" id="tabNiche" aria-controls="viewNiche">Niche finder</button>
     <button type="button" role="tab" id="tabNew" aria-controls="viewNew">New channels</button>
@@ -283,6 +286,35 @@ button.add { padding: 5px 10px; font-size: .84rem; justify-self: end; }
   </section>
   <p id="ideaSummary" class="dbsummary"></p>
   <div class="list" id="ideaList"></div>
+</div>
+
+<div class="wrap dbview" id="viewWatch" role="tabpanel">
+  <div class="notice bad" id="watchErrors" role="alert" hidden></div>
+  <section class="filters" aria-label="Watchlist filters">
+    <div class="field"><label for="watchGroup">Group</label>
+      <select id="watchGroup"><option value="">All groups</option></select></div>
+    <div class="field"><label for="watchFormat">Format</label>
+      <select id="watchFormat"><option value="long" selected>Long videos</option><option value="short">Shorts</option><option value="all">Both</option></select></div>
+    <div class="field"><label for="watchDays">Published in the last</label>
+      <select id="watchDays"><option value="7">7 days</option><option value="14">14 days</option><option value="30" selected>30 days</option><option value="60">60 days</option><option value="100000">Any time</option></select></div>
+    <div class="field"><label for="watchSort">Sort by</label>
+      <select id="watchSort"><option value="rising" selected>Rising fastest</option><option value="multiple">Beat their normal most</option><option value="views">Most views</option><option value="newest">Newest</option></select></div>
+    <div class="field"><label for="watchSearch">Search</label>
+      <input id="watchSearch" type="search" placeholder="Channel or video title" autocomplete="off"></div>
+  </section>
+  <p id="watchSummary" class="dbsummary"></p>
+  <section class="insight">
+    <h2>Their latest videos</h2>
+    <div class="list" id="watchList"></div>
+    <p class="hint">"Rising" is views gained per day since the previous daily check; until a video has two checks it's the average since it was posted. "Normal" is the channel's median for that format, from its uploads at least a week old. "New hit" = posted in the last 14 days and already 3× the channel's normal.</p>
+  </section>
+  <section class="insight">
+    <details id="watchChannelsBox">
+      <summary>Channels on the watchlist</summary>
+      <div class="scroll" id="watchChannels"></div>
+      <p class="hint">To add or remove a channel, <a href="https://github.com/xplanxplanet/noxi-outlier-finder/edit/main/data/watchlist.json" target="_blank" rel="noopener">edit data/watchlist.json on GitHub</a> (its UC channel ID, a name and a group). The next daily check picks it up.</p>
+    </details>
+  </section>
 </div>
 
 <div class="wrap dbview" id="viewQuiet" role="tabpanel">
@@ -992,6 +1024,34 @@ async function discoverChannels(phrases, days, key, fetcher, onProgress, now = D
 }
 
 /* ---------- Database ---------- */
+const WATCH_URLS = ['https://raw.githubusercontent.com/xplanxplanet/noxi-outlier-finder/main/data/watch.json', 'data/watch.json'];
+const HIT_DAYS = 14, HIT_MULTIPLE = 3;
+/* Views per day now: the gain between the last two daily checks, or the average since posting until there are two. */
+function videoPace(v, now) {
+  const h = v.h || [];
+  if (h.length >= 2) {
+    const [d0, v0] = h[h.length - 2], [d1, v1] = h[h.length - 1];
+    if (d1 > d0) return { perDay: Math.max((v1 - v0) / (d1 - d0), 0), measured: true };
+  }
+  return { perDay: v.views / Math.max((now - Date.parse(v.publishedAt)) / DAY, 1), measured: false };
+}
+function rankWatch(d, f, now) {
+  const chans = new Map(d.channels.map(c => [c.id, c]));
+  const needle = f.search.trim().toLowerCase();
+  return d.videos.map(v => {
+    const c = chans.get(v.channelId);
+    if (!c) return null;
+    const fmt = v.seconds && v.seconds <= SHORT_MAX_SECONDS ? 'short' : 'long';
+    const normal = c.normal ? c.normal[fmt] : null;
+    const ageDays = Math.max((now - Date.parse(v.publishedAt)) / DAY, 0);
+    const p = videoPace(v, now);
+    const multiple = normal ? v.views / normal : null;
+    return { ...v, channel: c, fmt, normal, ageDays, ...p, multiple, hit: ageDays <= HIT_DAYS && multiple !== null && multiple >= HIT_MULTIPLE };
+  }).filter(v => v && (f.format === 'all' || v.fmt === f.format) && v.ageDays <= f.days && (!f.group || v.channel.group === f.group) &&
+    (!needle || v.title.toLowerCase().includes(needle) || v.channel.name.toLowerCase().includes(needle)))
+    .sort({ rising: (a, b) => b.perDay - a.perDay, multiple: (a, b) => (b.multiple ?? -1) - (a.multiple ?? -1), views: (a, b) => b.views - a.views,
+      newest: (a, b) => a.ageDays - b.ageDays }[f.sort] || ((a, b) => b.perDay - a.perDay));
+}
 const DATA_URLS = ['https://raw.githubusercontent.com/xplanxplanet/noxi-outlier-finder/main/data/channels.json', 'data/channels.json'];
 function rankDatabase(channels, f, now) {
   const needle = f.search.trim().toLowerCase();
@@ -1313,6 +1373,66 @@ function quietRow(c, inScan) {
       sparkline(c)),
     el('div', { class: 'nums' }, el('strong', {}, num(c.views) + ' views'), el('span', {}, num(c.perVideo) + '/video'), add,
       saveIdeaButton('Format like ' + c.title + ': ' + v.title, link, c.title)));
+}
+function watchRow(v) {
+  const url = 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id);
+  const c = v.channel;
+  const chUrl = 'https://www.youtube.com/' + (c.handle ? (c.handle.startsWith('@') ? c.handle : '@' + c.handle) : 'channel/' + encodeURIComponent(c.id));
+  const chips = [];
+  if (v.hit) chips.push(el('span', { class: 'chip hitchip' }, 'New hit'));
+  if (v.multiple !== null) chips.push(el('span', { class: 'chip' }, mult(v.multiple) + ' their normal'));
+  if (!v.measured) chips.push(el('span', { class: 'chip' }, 'Average since posted'));
+  chips.push(el('span', { class: 'chip' }, c.group));
+  const len = v.seconds ? Math.floor(v.seconds / 60) + ':' + String(v.seconds % 60).padStart(2, '0') : '';
+  return el('article', { class: 'video' },
+    el('div', { class: 'mult', title: v.measured ? 'Views gained per day since the previous check' : 'Average views per day since posted' }, num(v.perDay), el('small', {}, 'views/day')),
+    el('img', { className: 'thumb', src: 'https://i.ytimg.com/vi/' + encodeURIComponent(v.id) + '/mqdefault.jpg', alt: '', loading: 'lazy' }),
+    el('div', { style: 'min-width:0' },
+      el('p', { class: 'vtitle' }, el('a', { href: url, target: '_blank', rel: 'noopener' }, v.title)),
+      el('p', { class: 'vmeta' }, el('a', { href: chUrl, target: '_blank', rel: 'noopener' }, c.name), ' · ' + num(c.subs) + ' subs · ' + ago(v.ageDays) + (len ? ' · ' + len : '')),
+      el('div', { class: 'chips' }, chips)),
+    el('div', { class: 'nums' }, el('strong', {}, num(v.views) + ' views'), el('span', {}, v.normal ? 'Normal ' + num(v.normal) : 'No normal yet'),
+      saveIdeaButton(v.title, url, c.name)));
+}
+function renderWatch() {
+  const d = state.watch;
+  if (!d) {
+    $('watchSummary').textContent = state.watchFailed ? '' : 'Loading the watchlist…';
+    $('watchList').replaceChildren(el('p', { class: 'empty' }, state.watchFailed ? 'The watchlist appears after the next daily check.' : ''));
+    return;
+  }
+  const now = Date.now();
+  const f = { group: $('watchGroup').value, format: $('watchFormat').value, days: +$('watchDays').value, sort: $('watchSort').value, search: $('watchSearch').value };
+  const list = rankWatch(d, f, now);
+  const hits = list.filter(v => v.hit).length;
+  const when = new Date(d.updatedAt).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' });
+  $('watchSummary').textContent = list.length + (list.length === 1 ? ' video' : ' videos') + ' from ' + d.channels.length + ' channels' + (hits ? ', ' + hits + (hits === 1 ? ' new hit' : ' new hits') : '') + '. Checked ' + when + '.';
+  $('watchList').replaceChildren(...(list.length ? list.slice(0, 80).map(watchRow)
+    : [el('p', { class: 'empty' }, 'No videos match. Try a longer period, another format or all groups.')]));
+  const latest = new Map();
+  d.videos.forEach(v => { const t = Date.parse(v.publishedAt); if (!latest.has(v.channelId) || t > latest.get(v.channelId)) latest.set(v.channelId, t); });
+  const chans = [...d.channels].sort((a, b) => a.group.localeCompare(b.group) || (b.subs || 0) - (a.subs || 0));
+  $('watchChannels').replaceChildren(table(['Channel', 'Group', 'Subscribers', 'Normal (long)', 'Normal (Shorts)', 'Latest upload'], chans.map(c => [
+    el('a', { href: 'https://www.youtube.com/channel/' + encodeURIComponent(c.id), target: '_blank', rel: 'noopener' }, c.name),
+    c.group, num(c.subs), c.normal && c.normal.long !== null ? num(c.normal.long) : '–', c.normal && c.normal.short !== null ? num(c.normal.short) : '–',
+    latest.has(c.id) ? ago((now - latest.get(c.id)) / DAY) : '–'])));
+}
+async function loadWatch() {
+  for (const url of WATCH_URLS) {
+    try {
+      const res = await fetch(url, { cache: 'no-cache' });
+      if (!res.ok) continue;
+      const d = await res.json();
+      if (!Array.isArray(d.channels) || !Array.isArray(d.videos)) continue;
+      state.watch = d;
+      const groups = [...new Set(d.channels.map(c => c.group))].sort();
+      $('watchGroup').append(...groups.map(g => el('option', { value: g }, g)));
+      renderWatch();
+      return;
+    } catch (e) { /* try the next location */ }
+  }
+  state.watchFailed = true;
+  renderWatch();
 }
 function renderQuiet() {
   const d = state.db;
@@ -1689,7 +1809,7 @@ async function onBackupLoad() {
   $('backupLoad').value = '';
 }
 
-const TABS = { mine: ['tabMine', 'viewMine'], ideas: ['tabIdeas', 'viewIdeas'], db: ['tabDb', 'viewDb'], quiet: ['tabQuiet', 'viewQuiet'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
+const TABS = { mine: ['tabMine', 'viewMine'], ideas: ['tabIdeas', 'viewIdeas'], db: ['tabDb', 'viewDb'], watch: ['tabWatch', 'viewWatch'], quiet: ['tabQuiet', 'viewQuiet'], niche: ['tabNiche', 'viewNiche'], new: ['tabNew', 'viewNew'], out: ['tabOut', 'viewOut'] };
 function setTab(name) {
   if (!TABS[name]) name = 'db';
   for (const [k, [tab, view]] of Object.entries(TABS)) {
@@ -1698,6 +1818,7 @@ function setTab(name) {
   }
   if (name === 'niche') renderNiche();
   if (name === 'quiet') renderQuiet();
+  if (name === 'watch') renderWatch();
   if (name === 'mine') renderMine();
   if (name === 'ideas') renderIdeas();
   store.set('nox.tab', name);
@@ -1756,6 +1877,9 @@ function boot() {
   ['dbAge', 'dbMinViews', 'dbSubs', 'dbCountry', 'dbSort'].forEach(id => $(id).addEventListener('change', renderDb));
   $('dbSearch').addEventListener('input', renderDb);
   $('tabQuiet').addEventListener('click', () => setTab('quiet'));
+  $('tabWatch').addEventListener('click', () => setTab('watch'));
+  ['watchGroup', 'watchFormat', 'watchDays', 'watchSort'].forEach(id => $(id).addEventListener('change', renderWatch));
+  $('watchSearch').addEventListener('input', renderWatch);
   $('tabMine').addEventListener('click', () => setTab('mine'));
   $('tabIdeas').addEventListener('click', () => setTab('ideas'));
   state.mine = loadJson('nox.mine', null);
@@ -1807,6 +1931,7 @@ function boot() {
   setTab(store.get('nox.tab'));
   renderDb();
   loadDb();
+  loadWatch();
 }
 boot();
 </script>

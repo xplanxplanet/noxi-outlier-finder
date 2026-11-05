@@ -1,0 +1,135 @@
+{
+ "_note": "Channels the Watchlist tab follows. Add one with its UC channel ID, a name and a group; the daily collector picks it up on its next run.",
+ "channels": [
+  {
+   "id": "UCx04mh80FmICMZCes1t-VUw",
+   "name": "Squire Explains",
+   "group": "From your screenshots"
+  },
+  {
+   "id": "UCudHk0lCu5zMD1bBQgzNeVw",
+   "name": "The Curious Stick",
+   "group": "From your screenshots"
+  },
+  {
+   "id": "UCwKSmaLfzlLUWv12oKVjx6w",
+   "name": "WW2 Life Uncovered",
+   "group": "From your screenshots"
+  },
+  {
+   "id": "UCcWTKxSwNCRjYpPxBHTVQsA",
+   "name": "Odd Centuries",
+   "group": "From your screenshots"
+  },
+  {
+   "id": "UCPDCiU00ugujWP8H2HMbiFA",
+   "name": "Markets of the Past",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCrq_LwknwB3P9rSWy5CLTvQ",
+   "name": "PENNY",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCJBtZsbKrhEJh09pnqYAB-g",
+   "name": "The Greenback Stories",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCP9RPj_BG0vit2TNM7LuRxA",
+   "name": "Crayon Capital",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCcA2aJFGGbSHVuqVp23rJlw",
+   "name": "Money Chuck",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCV0COfVgeu-nKCj-wjSHIhA",
+   "name": "The Dictator Lab",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCS8iXUeywO63tC0nau4OiNQ",
+   "name": "Global Comparison",
+   "group": "Money behind history"
+  },
+  {
+   "id": "UCjo7GpEBU5ZmY4uWzJhPUXA",
+   "name": "Casual Tactics",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCvgMH-WriYf-GnP3Xof6z9A",
+   "name": "WW2 Aftermath",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCMXLenT5ywg3ydl2dlesMbg",
+   "name": "WW2 Explained",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCuyKlvQhPbPKdENL8y1lDrA",
+   "name": "Rome Unscrolled",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCWHkzeMr588wi4j4MEl5DyQ",
+   "name": "Past in Ink",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCfqJsOXexvOvaDe-KJSi09w",
+   "name": "ExplainTory",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCu6S_MpYydihE-R_MMY1y5A",
+   "name": "The Scribble Scholar",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UC_FStSURaDad8-xo6jH1j4Q",
+   "name": "Bernard",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCRi2h75k0cAsMin5TYxZJgw",
+   "name": "Agent Flappy",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UClZZj8YJmITGW0HJuvoet1Q",
+   "name": "Rome Before",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCTvkM-ZiN84WC1kE5zrChhA",
+   "name": "Vlad — Medieval History",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCTiyJ3T91ENV2ay1uQd0AYg",
+   "name": "Medieval Times",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UC0JBTccsRyNGYeD4E9mqHQQ",
+   "name": "POV History Files",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCIFFSv7Cl4CxdC2ThoFGQoQ",
+   "name": "Legion Lab",
+   "group": "Military & history explainers"
+  },
+  {
+   "id": "UCHu0zb_l4Gb5X3Ow9XmCVIA",
+   "name": "Paint it",
+   "group": "Military & history explainers"
+  }
+ ]
+}
